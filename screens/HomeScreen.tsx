@@ -7,9 +7,11 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { AudioPairTile } from '../components/AudioPairTile';
 import { StorageService, AudioPair } from '../services/storage';
+import { colors } from '../theme/colors';
 
 interface HomeScreenProps {
   onSelectPair: (pair: AudioPair) => void;
@@ -39,27 +41,42 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     loadAudioPairs();
   }, [loadAudioPairs]);
 
-  const handleDelete = useCallback((id: string) => {
-    Alert.alert(
-      'Delete Audio Pair',
-      'Are you sure you want to delete this audio pair?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await StorageService.deleteAudioPair(id);
-              await loadAudioPairs();
-            } catch (error) {
-              console.error('Error deleting audio pair:', error);
-              Alert.alert('Error', 'Failed to delete audio pair');
-            }
-          },
-        },
-      ]
-    );
+  const handleDelete = useCallback(async (id: string) => {
+    console.log('Delete button clicked for ID:', id);
+
+    // Use window.confirm for web, Alert.alert for native
+    const confirmed = Platform.OS === 'web'
+      ? window.confirm('Are you sure you want to delete this audio pair?')
+      : await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            'Delete Audio Pair',
+            'Are you sure you want to delete this audio pair?',
+            [
+              { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Delete', style: 'destructive', onPress: () => resolve(true) },
+            ]
+          );
+        });
+
+    if (!confirmed) {
+      console.log('Delete cancelled');
+      return;
+    }
+
+    try {
+      console.log('Deleting audio pair:', id);
+      await StorageService.deleteAudioPair(id);
+      console.log('Audio pair deleted, reloading list...');
+      await loadAudioPairs();
+      console.log('List reloaded');
+    } catch (error) {
+      console.error('Error deleting audio pair:', error);
+      if (Platform.OS === 'web') {
+        alert('Failed to delete audio pair');
+      } else {
+        Alert.alert('Error', 'Failed to delete audio pair');
+      }
+    }
   }, [loadAudioPairs]);
 
   const renderItem = useCallback(({ item }: { item: AudioPair }) => (
@@ -78,7 +95,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#1fb28a" />
+          <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Loading audio pairs...</Text>
         </View>
       ) : audioPairs.length === 0 ? (
@@ -107,14 +124,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
     padding: 20,
   },
   header: {
     fontSize: 28,
     fontWeight: 'bold',
     marginBottom: 20,
-    color: '#333',
+    color: colors.textPrimary,
   },
   loadingContainer: {
     flex: 1,
@@ -124,14 +141,14 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 15,
     fontSize: 16,
-    color: '#666',
+    color: colors.textSecondary,
   },
   listContent: {
     paddingBottom: 100,
   },
   emptyText: {
     textAlign: 'center',
-    color: '#999',
+    color: colors.textMuted,
     fontSize: 16,
     marginTop: 50,
   },
@@ -140,21 +157,21 @@ const styles = StyleSheet.create({
     bottom: 30,
     left: 20,
     right: 20,
-    backgroundColor: '#1fb28a',
+    backgroundColor: colors.primary,
     padding: 18,
     borderRadius: 10,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 4,
     },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    elevation: 8,
   },
   addButtonText: {
-    color: '#fff',
+    color: colors.background,
     fontSize: 18,
     fontWeight: 'bold',
   },

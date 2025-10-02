@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { StorageService, AudioFile } from '../services/storage';
+import { colors } from '../theme/colors';
 
 interface AddAudioPairScreenProps {
   onCancel: () => void;
@@ -156,7 +157,7 @@ export const AddAudioPairScreen: React.FC<AddAudioPairScreenProps> = ({
           disabled={loadingBgMusic}
         >
           {loadingBgMusic ? (
-            <ActivityIndicator color="#1fb28a" />
+            <ActivityIndicator color={colors.primary} />
           ) : (
             <Text style={styles.fileButtonText}>
               {backgroundMusic ? backgroundMusic.name : 'Select Background Music'}
@@ -179,7 +180,7 @@ export const AddAudioPairScreen: React.FC<AddAudioPairScreenProps> = ({
           disabled={loadingAudiobook}
         >
           {loadingAudiobook ? (
-            <ActivityIndicator color="#1fb28a" />
+            <ActivityIndicator color={colors.primary} />
           ) : (
             <Text style={styles.fileButtonText}>
               {audiobook ? audiobook.name : 'Select Audiobook'}
@@ -222,14 +223,14 @@ export const AddAudioPairScreen: React.FC<AddAudioPairScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
     padding: 20,
   },
   header: {
     fontSize: 28,
     fontWeight: 'bold',
     marginBottom: 30,
-    color: '#333',
+    color: colors.textPrimary,
   },
   section: {
     marginBottom: 25,
@@ -238,35 +239,37 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 10,
-    color: '#333',
+    color: colors.textPrimary,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: colors.border,
     borderRadius: 8,
     padding: 15,
     fontSize: 16,
+    backgroundColor: colors.inputBackground,
+    color: colors.textPrimary,
   },
   fileButton: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: colors.buttonBackground,
     padding: 15,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: colors.border,
   },
   fileButtonText: {
     fontSize: 16,
-    color: '#333',
+    color: colors.textPrimary,
   },
   fileInfo: {
     marginTop: 8,
     fontSize: 14,
-    color: '#1fb28a',
+    color: colors.success,
   },
   loadingInfo: {
     marginTop: 8,
     fontSize: 14,
-    color: '#666',
+    color: colors.textSecondary,
   },
   buttonContainer: {
     flexDirection: 'row',
@@ -282,18 +285,20 @@ const styles = StyleSheet.create({
     marginHorizontal: 5,
   },
   cancelButton: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: colors.buttonBackground,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   cancelButtonText: {
-    color: '#333',
+    color: colors.textPrimary,
     fontSize: 16,
     fontWeight: 'bold',
   },
   saveButton: {
-    backgroundColor: '#1fb28a',
+    backgroundColor: colors.primary,
   },
   saveButtonText: {
-    color: '#fff',
+    color: colors.background,
     fontSize: 16,
     fontWeight: 'bold',
   },

@@ -1,6 +1,7 @@
 import React, { memo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { AudioPair } from '../services/storage';
+import { colors } from '../theme/colors';
 
 interface AudioPairTileProps {
   audioPair: AudioPair;
@@ -18,6 +19,12 @@ export const AudioPairTile = memo<AudioPairTileProps>(({
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
   };
 
+  const handleDelete = (e: any) => {
+    e?.stopPropagation?.();
+    e?.preventDefault?.();
+    onDelete();
+  };
+
   return (
     <View style={styles.tile}>
       <TouchableOpacity style={styles.content} onPress={onPress} activeOpacity={0.7}>
@@ -30,7 +37,7 @@ export const AudioPairTile = memo<AudioPairTileProps>(({
         </View>
         <Text style={styles.date}>{formatDate(audioPair.createdAt)}</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.deleteButton} onPress={onDelete}>
+      <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
         <Text style={styles.deleteButtonText}>Delete</Text>
       </TouchableOpacity>
     </View>
@@ -41,18 +48,20 @@ AudioPairTile.displayName = 'AudioPairTile';
 
 const styles = StyleSheet.create({
   tile: {
-    backgroundColor: '#f9f9f9',
-    borderRadius: 10,
-    padding: 15,
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    padding: 18,
     marginBottom: 15,
+    borderWidth: 1,
+    borderColor: colors.border,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 4,
     },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    elevation: 8,
   },
   content: {
     marginBottom: 15,
@@ -61,33 +70,34 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 10,
-    color: '#333',
+    color: colors.textPrimary,
   },
   details: {
     marginBottom: 10,
   },
   label: {
     fontSize: 12,
-    color: '#666',
+    color: colors.textMuted,
     marginTop: 5,
   },
   fileName: {
     fontSize: 14,
-    color: '#333',
+    color: colors.textSecondary,
     marginBottom: 5,
   },
   date: {
     fontSize: 11,
-    color: '#999',
+    color: colors.textMuted,
   },
   deleteButton: {
-    backgroundColor: '#ff4444',
-    padding: 10,
-    borderRadius: 5,
+    backgroundColor: colors.error,
+    padding: 12,
+    borderRadius: 8,
     alignItems: 'center',
   },
   deleteButtonText: {
-    color: '#fff',
+    color: colors.textPrimary,
     fontWeight: 'bold',
+    fontSize: 14,
   },
 });

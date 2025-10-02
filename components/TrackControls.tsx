@@ -1,6 +1,7 @@
 import React, { memo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Slider from '@react-native-community/slider';
+import { colors } from '../theme/colors';
 
 interface TrackControlsProps {
   trackTitle: string;
@@ -50,8 +51,9 @@ export const TrackControls = memo<TrackControlsProps>(({
             value={position}
             onValueChange={onPositionChange}
             onSlidingComplete={onPositionComplete}
-            minimumTrackTintColor="#4a90e2"
-            maximumTrackTintColor="#d3d3d3"
+            minimumTrackTintColor={colors.accent}
+            maximumTrackTintColor={colors.border}
+            thumbTintColor={colors.accent}
           />
         </View>
       )}
@@ -65,8 +67,9 @@ export const TrackControls = memo<TrackControlsProps>(({
           value={volume}
           onValueChange={onVolumeChange}
           onSlidingComplete={onVolumeComplete}
-          minimumTrackTintColor="#1fb28a"
-          maximumTrackTintColor="#d3d3d3"
+          minimumTrackTintColor={colors.primary}
+          maximumTrackTintColor={colors.border}
+          thumbTintColor={colors.primary}
         />
       </View>
 
@@ -79,8 +82,9 @@ export const TrackControls = memo<TrackControlsProps>(({
           value={rate}
           onValueChange={onRateChange}
           onSlidingComplete={onRateComplete}
-          minimumTrackTintColor="#1fb28a"
-          maximumTrackTintColor="#d3d3d3"
+          minimumTrackTintColor={colors.primary}
+          maximumTrackTintColor={colors.border}
+          thumbTintColor={colors.primary}
         />
       </View>
 
@@ -97,19 +101,22 @@ TrackControls.displayName = 'TrackControls';
 
 const styles = StyleSheet.create({
   trackContainer: {
-    marginBottom: 30,
-    padding: 15,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 10,
+    marginBottom: 20,
+    padding: 18,
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   trackTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 5,
+    color: colors.textPrimary,
   },
   trackName: {
     fontSize: 14,
-    color: '#666',
+    color: colors.textSecondary,
     marginBottom: 15,
   },
   controlRow: {
@@ -119,6 +126,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 5,
     fontWeight: '500',
+    color: colors.textSecondary,
   },
   slider: {
     width: '100%',
@@ -126,7 +134,7 @@ const styles = StyleSheet.create({
   },
   time: {
     fontSize: 12,
-    color: '#666',
+    color: colors.textMuted,
     textAlign: 'right',
   },
 });

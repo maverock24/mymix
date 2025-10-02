@@ -14,6 +14,11 @@ export interface AudioPair {
   audiobook: AudioFile;
   createdAt: number;
   savedPosition?: number; // Saved playback position in milliseconds for audiobook
+  // Volume and speed settings
+  bgMusicVolume?: number; // Background music volume (0-1), default 0.25
+  audiobookVolume?: number; // Audiobook volume (0-1), default 1
+  bgMusicSpeed?: number; // Background music speed (0.5-2.0), default 1
+  audiobookSpeed?: number; // Audiobook speed (0.5-2.0), default 1
 }
 
 // Initialize localforage
@@ -74,6 +79,23 @@ export const StorageService = {
     if (!existingPair) return;
 
     const updatedPair = { ...existingPair, savedPosition: position };
+    await audioPairStore.setItem(id, updatedPair);
+  },
+
+  // Save volume and speed settings for an audio pair
+  async saveSettings(
+    id: string,
+    settings: {
+      bgMusicVolume?: number;
+      audiobookVolume?: number;
+      bgMusicSpeed?: number;
+      audiobookSpeed?: number;
+    }
+  ): Promise<void> {
+    const existingPair = await audioPairStore.getItem<AudioPair>(id);
+    if (!existingPair) return;
+
+    const updatedPair = { ...existingPair, ...settings };
     await audioPairStore.setItem(id, updatedPair);
   },
 };

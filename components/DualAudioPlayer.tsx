@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'rea
 import { Audio } from 'expo-av';
 import { AudioPair, StorageService } from '../services/storage';
 import { TrackControls } from './TrackControls';
+import { colors } from '../theme/colors';
 
 interface DualAudioPlayerProps {
   audioPair: AudioPair;
@@ -14,13 +15,13 @@ export const DualAudioPlayer: React.FC<DualAudioPlayerProps> = ({ audioPair }) =
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Volume states (0 to 1) - Background music defaults to 25%
-  const [volume1, setVolume1] = useState(0.25);
-  const [volume2, setVolume2] = useState(1);
+  // Volume states (0 to 1) - Load from saved settings or use defaults
+  const [volume1, setVolume1] = useState(audioPair.bgMusicVolume ?? 0.25);
+  const [volume2, setVolume2] = useState(audioPair.audiobookVolume ?? 1);
 
-  // Speed/Rate states (0.5 to 2.0)
-  const [rate1, setRate1] = useState(1);
-  const [rate2, setRate2] = useState(1);
+  // Speed/Rate states (0.5 to 2.0) - Load from saved settings or use defaults
+  const [rate1, setRate1] = useState(audioPair.bgMusicSpeed ?? 1);
+  const [rate2, setRate2] = useState(audioPair.audiobookSpeed ?? 1);
 
   // Position states - throttled updates
   const [position1, setPosition1] = useState(0);
@@ -82,6 +83,15 @@ export const DualAudioPlayer: React.FC<DualAudioPlayerProps> = ({ audioPair }) =
       await StorageService.savePosition(audioPair.id, position2);
     }
   }, [position2, audioPair.id]);
+
+  const saveSettings = useCallback(async () => {
+    await StorageService.saveSettings(audioPair.id, {
+      bgMusicVolume: volume1,
+      audiobookVolume: volume2,
+      bgMusicSpeed: rate1,
+      audiobookSpeed: rate2,
+    });
+  }, [audioPair.id, volume1, volume2, rate1, rate2]);
 
   const loadAudio = async () => {
     try {
@@ -233,12 +243,13 @@ export const DualAudioPlayer: React.FC<DualAudioPlayerProps> = ({ audioPair }) =
         const status = await sound1.getStatusAsync();
         if (status.isLoaded) {
           await sound1.setVolumeAsync(value);
+          await saveSettings(); // Save settings after adjustment
         }
       } catch (error) {
         console.error('Error setting volume for background music:', error);
       }
     }
-  }, [sound1]);
+  }, [sound1, saveSettings]);
 
   const handleVolume2Change = useCallback((value: number) => {
     setVolume2(value);
@@ -250,12 +261,13 @@ export const DualAudioPlayer: React.FC<DualAudioPlayerProps> = ({ audioPair }) =
         const status = await sound2.getStatusAsync();
         if (status.isLoaded) {
           await sound2.setVolumeAsync(value);
+          await saveSettings(); // Save settings after adjustment
         }
       } catch (error) {
         console.error('Error setting volume for audiobook:', error);
       }
     }
-  }, [sound2]);
+  }, [sound2, saveSettings]);
 
   const handleRate1Change = useCallback((value: number) => {
     setRate1(value);
@@ -267,12 +279,13 @@ export const DualAudioPlayer: React.FC<DualAudioPlayerProps> = ({ audioPair }) =
         const status = await sound1.getStatusAsync();
         if (status.isLoaded) {
           await sound1.setRateAsync(value, true);
+          await saveSettings(); // Save settings after adjustment
         }
       } catch (error) {
         console.error('Error setting playback rate for background music:', error);
       }
     }
-  }, [sound1]);
+  }, [sound1, saveSettings]);
 
   const handleRate2Change = useCallback((value: number) => {
     setRate2(value);
@@ -284,12 +297,13 @@ export const DualAudioPlayer: React.FC<DualAudioPlayerProps> = ({ audioPair }) =
         const status = await sound2.getStatusAsync();
         if (status.isLoaded) {
           await sound2.setRateAsync(value, true);
+          await saveSettings(); // Save settings after adjustment
         }
       } catch (error) {
         console.error('Error setting playback rate for audiobook:', error);
       }
     }
-  }, [sound2]);
+  }, [sound2, saveSettings]);
 
   // Position seeking handlers for audiobook
   const handlePosition2Change = useCallback((value: number) => {
@@ -320,7 +334,7 @@ export const DualAudioPlayer: React.FC<DualAudioPlayerProps> = ({ audioPair }) =
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#1fb28a" />
+        <ActivityIndicator size="large" color={colors.primary} />
         <Text style={styles.loadingText}>Loading audio files...</Text>
       </View>
     );
@@ -376,38 +390,47 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
   },
   loadingText: {
     marginTop: 15,
     fontSize: 16,
-    color: '#666',
+    color: colors.textSecondary,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 20,
     textAlign: 'center',
+    color: colors.textPrimary,
   },
   playButton: {
-    backgroundColor: '#1fb28a',
+    backgroundColor: colors.primary,
     padding: 20,
     borderRadius: 10,
     alignItems: 'center',
     marginTop: 20,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    elevation: 8,
   },
   playButtonDisabled: {
-    backgroundColor: '#ccc',
-    opacity: 0.6,
+    backgroundColor: colors.buttonBackground,
+    opacity: 0.5,
   },
   playButtonText: {
-    color: '#fff',
+    color: colors.background,
     fontSize: 18,
     fontWeight: 'bold',
   },
