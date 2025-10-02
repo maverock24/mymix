@@ -41,6 +41,42 @@ export const AddAudioPairScreen: React.FC<AddAudioPairScreenProps> = ({
     }
   };
 
+  const pickAudiobook = async () => {
+    try {
+      setLoadingAudiobook(true);
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'audio/*',
+        copyToCacheDirectory: false,
+      });
+
+      if (result.canceled) {
+        setLoadingAudiobook(false);
+        return;
+      }
+
+      const file = result.assets[0];
+      const blobData = await convertFileToBlob(file);
+
+      setAudiobook({
+        id: `ab_${Date.now()}`,
+        name: file.name,
+        data: blobData,
+        type: file.mimeType || 'audio/mpeg',
+      });
+
+      // Auto-populate pair name with audiobook filename (without extension)
+      if (!pairName) {
+        const nameWithoutExtension = file.name.replace(/\.[^/.]+$/, '');
+        setPairName(nameWithoutExtension);
+      }
+    } catch (error) {
+      console.error('Error picking audiobook:', error);
+      Alert.alert('Error', 'Failed to pick audiobook file');
+    } finally {
+      setLoadingAudiobook(false);
+    }
+  };
+
   const pickBackgroundMusic = async () => {
     try {
       setLoadingBgMusic(true);
@@ -68,36 +104,6 @@ export const AddAudioPairScreen: React.FC<AddAudioPairScreenProps> = ({
       Alert.alert('Error', 'Failed to pick background music file');
     } finally {
       setLoadingBgMusic(false);
-    }
-  };
-
-  const pickAudiobook = async () => {
-    try {
-      setLoadingAudiobook(true);
-      const result = await DocumentPicker.getDocumentAsync({
-        type: 'audio/*',
-        copyToCacheDirectory: false,
-      });
-
-      if (result.canceled) {
-        setLoadingAudiobook(false);
-        return;
-      }
-
-      const file = result.assets[0];
-      const blobData = await convertFileToBlob(file);
-
-      setAudiobook({
-        id: `ab_${Date.now()}`,
-        name: file.name,
-        data: blobData,
-        type: file.mimeType || 'audio/mpeg',
-      });
-    } catch (error) {
-      console.error('Error picking audiobook:', error);
-      Alert.alert('Error', 'Failed to pick audiobook file');
-    } finally {
-      setLoadingAudiobook(false);
     }
   };
 
@@ -139,14 +145,26 @@ export const AddAudioPairScreen: React.FC<AddAudioPairScreenProps> = ({
       <Text style={styles.header}>Add New Audio Pair</Text>
 
       <View style={styles.section}>
-        <Text style={styles.label}>Pair Name</Text>
-        <TextInput
-          style={styles.input}
-          value={pairName}
-          onChangeText={setPairName}
-          placeholder="e.g., Morning Study Mix"
-          placeholderTextColor="#999"
-        />
+        <Text style={styles.label}>Audiobook</Text>
+        <TouchableOpacity
+          style={styles.fileButton}
+          onPress={pickAudiobook}
+          disabled={loadingAudiobook}
+        >
+          {loadingAudiobook ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : (
+            <Text style={styles.fileButtonText}>
+              {audiobook ? audiobook.name : 'Select Audiobook'}
+            </Text>
+          )}
+        </TouchableOpacity>
+        {audiobook && !loadingAudiobook && (
+          <Text style={styles.fileInfo}>✓ File selected</Text>
+        )}
+        {loadingAudiobook && (
+          <Text style={styles.loadingInfo}>Loading file...</Text>
+        )}
       </View>
 
       <View style={styles.section}>
@@ -173,26 +191,14 @@ export const AddAudioPairScreen: React.FC<AddAudioPairScreenProps> = ({
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.label}>Audiobook</Text>
-        <TouchableOpacity
-          style={styles.fileButton}
-          onPress={pickAudiobook}
-          disabled={loadingAudiobook}
-        >
-          {loadingAudiobook ? (
-            <ActivityIndicator color={colors.primary} />
-          ) : (
-            <Text style={styles.fileButtonText}>
-              {audiobook ? audiobook.name : 'Select Audiobook'}
-            </Text>
-          )}
-        </TouchableOpacity>
-        {audiobook && !loadingAudiobook && (
-          <Text style={styles.fileInfo}>✓ File selected</Text>
-        )}
-        {loadingAudiobook && (
-          <Text style={styles.loadingInfo}>Loading file...</Text>
-        )}
+        <Text style={styles.label}>Pair Name</Text>
+        <TextInput
+          style={styles.input}
+          value={pairName}
+          onChangeText={setPairName}
+          placeholder="e.g., Morning Study Mix"
+          placeholderTextColor="#999"
+        />
       </View>
 
       <View style={styles.buttonContainer}>
