@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   FlatList,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { AudioPairTile } from '../components/AudioPairTile';
 import { StorageService, AudioPair } from '../services/storage';
@@ -22,11 +23,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [audioPairs, setAudioPairs] = useState<AudioPair[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadAudioPairs();
-  }, []);
-
-  const loadAudioPairs = async () => {
+  const loadAudioPairs = useCallback(async () => {
     try {
       const pairs = await StorageService.getAllAudioPairs();
       setAudioPairs(pairs);
@@ -36,9 +33,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleDelete = async (id: string) => {
+  useEffect(() => {
+    loadAudioPairs();
+  }, [loadAudioPairs]);
+
+  const handleDelete = useCallback((id: string) => {
     Alert.alert(
       'Delete Audio Pair',
       'Are you sure you want to delete this audio pair?',
@@ -59,14 +60,27 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         },
       ]
     );
-  };
+  }, [loadAudioPairs]);
+
+  const renderItem = useCallback(({ item }: { item: AudioPair }) => (
+    <AudioPairTile
+      audioPair={item}
+      onPress={() => onSelectPair(item)}
+      onDelete={() => handleDelete(item.id)}
+    />
+  ), [onSelectPair, handleDelete]);
+
+  const keyExtractor = useCallback((item: AudioPair) => item.id, []);
 
   return (
     <View style={styles.container}>
       <Text style={styles.header}>My Audio Mixes</Text>
 
       {loading ? (
-        <Text style={styles.emptyText}>Loading...</Text>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#1fb28a" />
+          <Text style={styles.loadingText}>Loading audio pairs...</Text>
+        </View>
       ) : audioPairs.length === 0 ? (
         <Text style={styles.emptyText}>
           No audio pairs yet. Tap the + button to add one.
@@ -74,15 +88,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       ) : (
         <FlatList
           data={audioPairs}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <AudioPairTile
-              audioPair={item}
-              onPress={() => onSelectPair(item)}
-              onDelete={() => handleDelete(item.id)}
-            />
-          )}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
           contentContainerStyle={styles.listContent}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          windowSize={5}
         />
       )}
 
@@ -104,6 +115,16 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 20,
     color: '#333',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 15,
+    fontSize: 16,
+    color: '#666',
   },
   listContent: {
     paddingBottom: 100,

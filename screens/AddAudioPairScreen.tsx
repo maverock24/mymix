@@ -8,6 +8,7 @@ import {
   Alert,
   ScrollView,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { StorageService, AudioFile } from '../services/storage';
@@ -25,71 +26,77 @@ export const AddAudioPairScreen: React.FC<AddAudioPairScreenProps> = ({
   const [backgroundMusic, setBackgroundMusic] = useState<AudioFile | null>(null);
   const [audiobook, setAudiobook] = useState<AudioFile | null>(null);
   const [saving, setSaving] = useState(false);
+  const [loadingBgMusic, setLoadingBgMusic] = useState(false);
+  const [loadingAudiobook, setLoadingAudiobook] = useState(false);
 
-  const convertFileToBase64 = async (uri: string): Promise<string> => {
-    try {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64data = reader.result as string;
-          resolve(base64data);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    } catch (error) {
-      console.error('Error converting file to base64:', error);
-      throw error;
+  const convertFileToBlob = async (file: any): Promise<Blob> => {
+    // For web platform, the file object has a file property which is already a Blob
+    if (Platform.OS === 'web' && file.file) {
+      return file.file;
+    } else {
+      // For mobile platforms, use fetch with the URI to get a blob
+      const response = await fetch(file.uri);
+      return await response.blob();
     }
   };
 
   const pickBackgroundMusic = async () => {
     try {
+      setLoadingBgMusic(true);
       const result = await DocumentPicker.getDocumentAsync({
         type: 'audio/*',
-        copyToCacheDirectory: true,
+        copyToCacheDirectory: false,
       });
 
-      if (result.canceled) return;
+      if (result.canceled) {
+        setLoadingBgMusic(false);
+        return;
+      }
 
       const file = result.assets[0];
-      const base64Data = await convertFileToBase64(file.uri);
+      const blobData = await convertFileToBlob(file);
 
       setBackgroundMusic({
         id: `bg_${Date.now()}`,
         name: file.name,
-        data: base64Data,
+        data: blobData,
         type: file.mimeType || 'audio/mpeg',
       });
     } catch (error) {
       console.error('Error picking background music:', error);
       Alert.alert('Error', 'Failed to pick background music file');
+    } finally {
+      setLoadingBgMusic(false);
     }
   };
 
   const pickAudiobook = async () => {
     try {
+      setLoadingAudiobook(true);
       const result = await DocumentPicker.getDocumentAsync({
         type: 'audio/*',
-        copyToCacheDirectory: true,
+        copyToCacheDirectory: false,
       });
 
-      if (result.canceled) return;
+      if (result.canceled) {
+        setLoadingAudiobook(false);
+        return;
+      }
 
       const file = result.assets[0];
-      const base64Data = await convertFileToBase64(file.uri);
+      const blobData = await convertFileToBlob(file);
 
       setAudiobook({
         id: `ab_${Date.now()}`,
         name: file.name,
-        data: base64Data,
+        data: blobData,
         type: file.mimeType || 'audio/mpeg',
       });
     } catch (error) {
       console.error('Error picking audiobook:', error);
       Alert.alert('Error', 'Failed to pick audiobook file');
+    } finally {
+      setLoadingAudiobook(false);
     }
   };
 
@@ -146,24 +153,45 @@ export const AddAudioPairScreen: React.FC<AddAudioPairScreenProps> = ({
         <TouchableOpacity
           style={styles.fileButton}
           onPress={pickBackgroundMusic}
+          disabled={loadingBgMusic}
         >
-          <Text style={styles.fileButtonText}>
-            {backgroundMusic ? backgroundMusic.name : 'Select Background Music'}
-          </Text>
+          {loadingBgMusic ? (
+            <ActivityIndicator color="#1fb28a" />
+          ) : (
+            <Text style={styles.fileButtonText}>
+              {backgroundMusic ? backgroundMusic.name : 'Select Background Music'}
+            </Text>
+          )}
         </TouchableOpacity>
-        {backgroundMusic && (
+        {backgroundMusic && !loadingBgMusic && (
           <Text style={styles.fileInfo}>✓ File selected</Text>
+        )}
+        {loadingBgMusic && (
+          <Text style={styles.loadingInfo}>Loading file...</Text>
         )}
       </View>
 
       <View style={styles.section}>
         <Text style={styles.label}>Audiobook</Text>
-        <TouchableOpacity style={styles.fileButton} onPress={pickAudiobook}>
-          <Text style={styles.fileButtonText}>
-            {audiobook ? audiobook.name : 'Select Audiobook'}
-          </Text>
+        <TouchableOpacity
+          style={styles.fileButton}
+          onPress={pickAudiobook}
+          disabled={loadingAudiobook}
+        >
+          {loadingAudiobook ? (
+            <ActivityIndicator color="#1fb28a" />
+          ) : (
+            <Text style={styles.fileButtonText}>
+              {audiobook ? audiobook.name : 'Select Audiobook'}
+            </Text>
+          )}
         </TouchableOpacity>
-        {audiobook && <Text style={styles.fileInfo}>✓ File selected</Text>}
+        {audiobook && !loadingAudiobook && (
+          <Text style={styles.fileInfo}>✓ File selected</Text>
+        )}
+        {loadingAudiobook && (
+          <Text style={styles.loadingInfo}>Loading file...</Text>
+        )}
       </View>
 
       <View style={styles.buttonContainer}>
@@ -234,6 +262,11 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 14,
     color: '#1fb28a',
+  },
+  loadingInfo: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#666',
   },
   buttonContainer: {
     flexDirection: 'row',

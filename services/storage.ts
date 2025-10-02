@@ -3,7 +3,7 @@ import localforage from 'localforage';
 export interface AudioFile {
   id: string;
   name: string;
-  data: string; // Base64 encoded audio data
+  data: Blob; // Audio file as Blob (much more efficient than Base64)
   type: string;
 }
 
@@ -13,6 +13,7 @@ export interface AudioPair {
   backgroundMusic: AudioFile;
   audiobook: AudioFile;
   createdAt: number;
+  savedPosition?: number; // Saved playback position in milliseconds for audiobook
 }
 
 // Initialize localforage
@@ -65,5 +66,14 @@ export const StorageService = {
   // Clear all audio pairs
   async clearAll(): Promise<void> {
     await audioPairStore.clear();
+  },
+
+  // Save playback position for an audio pair
+  async savePosition(id: string, position: number): Promise<void> {
+    const existingPair = await audioPairStore.getItem<AudioPair>(id);
+    if (!existingPair) return;
+
+    const updatedPair = { ...existingPair, savedPosition: position };
+    await audioPairStore.setItem(id, updatedPair);
   },
 };

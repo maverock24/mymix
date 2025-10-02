@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { AudioPair } from '../services/storage';
 
@@ -8,7 +8,7 @@ interface AudioPairTileProps {
   onDelete: () => void;
 }
 
-export const AudioPairTile: React.FC<AudioPairTileProps> = ({
+export const AudioPairTile = memo<AudioPairTileProps>(({
   audioPair,
   onPress,
   onDelete,
@@ -19,8 +19,8 @@ export const AudioPairTile: React.FC<AudioPairTileProps> = ({
   };
 
   return (
-    <TouchableOpacity style={styles.tile} onPress={onPress}>
-      <View style={styles.content}>
+    <View style={styles.tile}>
+      <TouchableOpacity style={styles.content} onPress={onPress} activeOpacity={0.7}>
         <Text style={styles.title}>{audioPair.name}</Text>
         <View style={styles.details}>
           <Text style={styles.label}>Background Music:</Text>
@@ -29,13 +29,15 @@ export const AudioPairTile: React.FC<AudioPairTileProps> = ({
           <Text style={styles.fileName}>{audioPair.audiobook.name}</Text>
         </View>
         <Text style={styles.date}>{formatDate(audioPair.createdAt)}</Text>
-      </View>
+      </TouchableOpacity>
       <TouchableOpacity style={styles.deleteButton} onPress={onDelete}>
         <Text style={styles.deleteButtonText}>Delete</Text>
       </TouchableOpacity>
-    </TouchableOpacity>
+    </View>
   );
-};
+});
+
+AudioPairTile.displayName = 'AudioPairTile';
 
 const styles = StyleSheet.create({
   tile: {
@@ -53,7 +55,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   content: {
-    marginBottom: 10,
+    marginBottom: 15,
   },
   title: {
     fontSize: 18,
