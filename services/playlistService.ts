@@ -4,7 +4,91 @@ import { Platform } from 'react-native';
 import { Track, Playlist, RepeatMode } from './storage';
 
 export class PlaylistService {
-  // Pick multiple audio files
+  // Pick audio files (single or multiple)
+  static async pickAudioFileAndFolder(): Promise<{ tracks: Track[]; selectedIndex: number }> {
+    try {
+      // First try to pick multiple files - this is the most reliable approach
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'audio/*',
+        copyToCacheDirectory: false,
+        multiple: true, // Allow selecting multiple files
+      });
+
+      if (result.canceled) {
+        return { tracks: [], selectedIndex: 0 };
+      }
+
+      // Convert selected files to tracks
+      const tracks: Track[] = result.assets.map((file, index) => ({
+        id: `track_${Date.now()}_${index}`,
+        name: file.name,
+        uri: file.uri,
+        type: file.mimeType || 'audio/mpeg',
+      }));
+
+      // Sort alphabetically
+      const sortedTracks = tracks.sort((a, b) => a.name.localeCompare(b.name));
+
+      return {
+        tracks: sortedTracks,
+        selectedIndex: 0, // Start with first track
+      };
+    } catch (error) {
+      console.error('Error picking audio files:', error);
+      return { tracks: [], selectedIndex: 0 };
+    }
+  }
+
+  // Extract folder path from file URI
+  static getFolderPath(fileUri: string): string {
+    // Remove file name to get folder path
+    const lastSlash = fileUri.lastIndexOf('/');
+    return lastSlash >= 0 ? fileUri.substring(0, lastSlash) : fileUri;
+  }
+
+  // Normalize URI for comparison (handles encoding differences)
+  private static normalizeUri(uri: string): string {
+    try {
+      return decodeURIComponent(uri).toLowerCase();
+    } catch {
+      return uri.toLowerCase();
+    }
+  }
+
+  // Get all audio tracks from a folder
+  private static async getTracksFromFolder(folderUri: string): Promise<Track[]> {
+    try {
+      if (Platform.OS === 'web') {
+        // Web doesn't support folder reading, return empty
+        return [];
+      }
+
+      // Try to read directory
+      const files = await FileSystem.readDirectoryAsync(folderUri);
+      const audioFiles = files.filter(file => this.isAudioFile(file));
+
+      const tracks: Track[] = audioFiles.map((filename, index) => ({
+        id: `track_${Date.now()}_${index}`,
+        name: filename,
+        uri: `${folderUri}/${filename}`,
+        type: this.getMimeType(filename),
+      }));
+
+      return tracks.sort((a, b) => a.name.localeCompare(b.name));
+    } catch (error) {
+      console.error('Error reading folder:', error);
+      // If folder reading fails, return just the selected file
+      return [];
+    }
+  }
+
+  // Check if file is an audio file
+  private static isAudioFile(filename: string): boolean {
+    const ext = filename.toLowerCase().split('.').pop();
+    return ['mp3', 'm4a', 'wav', 'ogg', 'aac', 'flac', 'wma'].includes(ext || '');
+  }
+
+  // Pick multiple audio files (legacy support)
   static async pickAudioFiles(): Promise<Track[]> {
     try {
       const result = await DocumentPicker.getDocumentAsync({

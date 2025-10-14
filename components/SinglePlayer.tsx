@@ -6,7 +6,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Platform,
-  ScrollView,
+  FlatList,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import Slider from '@react-native-community/slider';
@@ -199,7 +199,6 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
   const handlePrevious = () => {
     if (!playlist) return;
 
-    // If more than 3 seconds played, restart current track
     if (position > 3000) {
       setPosition(0);
       if (sound) {
@@ -273,167 +272,178 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
   const selectTrack = (index: number) => {
     setCurrentTrackIndex(index);
     setPosition(0);
-    setShowPlaylist(false);
   };
 
   const trackInfo = currentTrack
     ? PlaylistService.parseTrackName(currentTrack.name)
     : { title: 'No track' };
 
+  const renderPlaylistItem = ({ item, index }: { item: Track; index: number }) => {
+    const isActive = index === currentTrackIndex;
+    const trackName = PlaylistService.parseTrackName(item.name).title;
+
+    return (
+      <TouchableOpacity
+        onPress={() => selectTrack(index)}
+        style={[styles.playlistItem, isActive && styles.activePlaylistItem]}
+      >
+        <Text style={styles.playlistIndex}>{index + 1}.</Text>
+        <Text
+          style={[styles.playlistItemText, isActive && styles.activePlaylistItemText]}
+          numberOfLines={1}
+        >
+          {trackName}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.playerLabel}>Player {playerNumber}</Text>
         <TouchableOpacity onPress={onLoadPlaylist} style={styles.loadButton}>
-          <Text style={styles.loadButtonText}>📁 Load</Text>
+          <Text style={styles.loadButtonText}>📁</Text>
         </TouchableOpacity>
       </View>
 
-      {!playlist ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>No playlist loaded</Text>
-          <Text style={styles.emptySubtext}>Tap Load to select files or folder</Text>
-        </View>
-      ) : (
-        <>
-          {/* Track Info */}
-          <View style={styles.trackInfo}>
-            <Text style={styles.trackTitle} numberOfLines={1}>
-              {trackInfo.title}
-            </Text>
-            {trackInfo.artist && (
-              <Text style={styles.trackArtist} numberOfLines={1}>
-                {trackInfo.artist}
-              </Text>
-            )}
-            <Text style={styles.playlistInfo}>
-              {currentTrackIndex + 1} / {playlist.tracks.length}
-            </Text>
-          </View>
-
-          {/* Progress Bar */}
-          <View style={styles.progressContainer}>
-            <Text style={styles.timeText}>{PlaylistService.formatTime(position)}</Text>
-            <Slider
-              style={styles.progressSlider}
-              minimumValue={0}
-              maximumValue={duration || 1}
-              value={position}
-              onValueChange={handlePositionChange}
-              onSlidingComplete={handlePositionComplete}
-              minimumTrackTintColor={colors.primary}
-              maximumTrackTintColor={colors.border}
-              thumbTintColor={colors.primary}
-            />
-            <Text style={styles.timeText}>{PlaylistService.formatTime(duration)}</Text>
-          </View>
-
-          {/* Playback Controls */}
-          <View style={styles.controls}>
-            <TouchableOpacity onPress={toggleShuffle} style={styles.controlButton}>
-              <Text style={[styles.controlIcon, shuffle && styles.activeControl]}>🔀</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={handlePrevious} style={styles.controlButton}>
-              <Text style={styles.controlIcon}>⏮</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={togglePlayPause}
-              style={[styles.controlButton, styles.playButton]}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <ActivityIndicator color={colors.background} />
-              ) : (
-                <Text style={styles.playIcon}>{isPlaying ? '⏸' : '▶'}</Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={handleNext} style={styles.controlButton}>
-              <Text style={styles.controlIcon}>⏭</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={cycleRepeat} style={styles.controlButton}>
-              <Text style={[styles.controlIcon, repeat !== 'off' && styles.activeControl]}>
-                {repeat === 'one' ? '🔂' : '🔁'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Volume Control */}
-          <View style={styles.sliderContainer}>
-            <Text style={styles.sliderLabel}>🔊 Volume</Text>
-            <Slider
-              style={styles.slider}
-              minimumValue={0}
-              maximumValue={1}
-              value={volume}
-              onValueChange={handleVolumeChange}
-              onSlidingComplete={handleVolumeComplete}
-              minimumTrackTintColor={colors.primary}
-              maximumTrackTintColor={colors.border}
-              thumbTintColor={colors.primary}
-            />
-            <Text style={styles.sliderValue}>{Math.round(volume * 100)}%</Text>
-          </View>
-
-          {/* Speed Control */}
-          <View style={styles.sliderContainer}>
-            <Text style={styles.sliderLabel}>⚡ Speed</Text>
-            <Slider
-              style={styles.slider}
-              minimumValue={0.5}
-              maximumValue={2}
-              value={speed}
-              step={0.1}
-              onValueChange={handleSpeedChange}
-              onSlidingComplete={handleSpeedComplete}
-              minimumTrackTintColor={colors.primary}
-              maximumTrackTintColor={colors.border}
-              thumbTintColor={colors.primary}
-            />
-            <Text style={styles.sliderValue}>{speed.toFixed(1)}x</Text>
-          </View>
-
-          {/* Playlist Toggle */}
+      {/* Playlist - Top Section */}
+      {playlist && playlist.tracks.length > 0 && (
+        <View style={styles.playlistSection}>
           <TouchableOpacity
             onPress={() => setShowPlaylist(!showPlaylist)}
             style={styles.playlistToggle}
           >
             <Text style={styles.playlistToggleText}>
-              {showPlaylist ? '▼' : '▶'} Playlist ({playlist.tracks.length} tracks)
+              {showPlaylist ? '▼' : '▶'} {playlist.tracks.length} tracks
             </Text>
           </TouchableOpacity>
 
-          {/* Playlist */}
           {showPlaylist && (
-            <ScrollView style={styles.playlist}>
-              {playlist.tracks.map((track, index) => (
-                <TouchableOpacity
-                  key={track.id}
-                  onPress={() => selectTrack(index)}
-                  style={[
-                    styles.playlistItem,
-                    index === currentTrackIndex && styles.activePlaylistItem,
-                  ]}
-                >
-                  <Text style={styles.playlistIndex}>{index + 1}</Text>
-                  <Text
-                    style={[
-                      styles.playlistItemText,
-                      index === currentTrackIndex && styles.activePlaylistItemText,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {PlaylistService.parseTrackName(track.name).title}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+            <FlatList
+              data={playlist.tracks}
+              renderItem={renderPlaylistItem}
+              keyExtractor={(item) => item.id}
+              showsVerticalScrollIndicator={true}
+              style={styles.playlistList}
+              contentContainerStyle={styles.playlistContent}
+            />
           )}
-        </>
+        </View>
       )}
+
+      {/* Player Controls */}
+      <View style={styles.playerArea}>
+        {!playlist ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyText}>Tap 📁 to select audio files</Text>
+          </View>
+        ) : (
+          <>
+            {/* Track Info */}
+            <View style={styles.trackInfo}>
+              <Text style={styles.trackTitle} numberOfLines={2}>
+                {trackInfo.title}
+              </Text>
+              {trackInfo.artist && (
+                <Text style={styles.trackArtist} numberOfLines={1}>
+                  {trackInfo.artist}
+                </Text>
+              )}
+              <Text style={styles.playlistInfo}>
+                {currentTrackIndex + 1} / {playlist.tracks.length}
+              </Text>
+            </View>
+
+            {/* Progress Bar */}
+            <View style={styles.progressContainer}>
+              <Text style={styles.timeText}>{PlaylistService.formatTime(position)}</Text>
+              <Slider
+                style={styles.progressSlider}
+                minimumValue={0}
+                maximumValue={duration || 1}
+                value={position}
+                onValueChange={handlePositionChange}
+                onSlidingComplete={handlePositionComplete}
+                minimumTrackTintColor={colors.primary}
+                maximumTrackTintColor={colors.border}
+                thumbTintColor={colors.primary}
+              />
+              <Text style={styles.timeText}>{PlaylistService.formatTime(duration)}</Text>
+            </View>
+
+            {/* Playback Controls */}
+            <View style={styles.controls}>
+              <TouchableOpacity onPress={toggleShuffle} style={styles.smallButton}>
+                <Text style={[styles.smallIcon, shuffle && styles.activeControl]}>🔀</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={handlePrevious} style={styles.controlButton}>
+                <Text style={styles.controlIcon}>⏮</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={togglePlayPause}
+                style={styles.playButton}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color={colors.background} />
+                ) : (
+                  <Text style={styles.playIcon}>{isPlaying ? '⏸' : '▶'}</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={handleNext} style={styles.controlButton}>
+                <Text style={styles.controlIcon}>⏭</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={cycleRepeat} style={styles.smallButton}>
+                <Text style={[styles.smallIcon, repeat !== 'off' && styles.activeControl]}>
+                  {repeat === 'one' ? '🔂' : '🔁'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Volume & Speed */}
+            <View style={styles.sliderRow}>
+              <View style={styles.sliderGroup}>
+                <Text style={styles.sliderLabel}>🔊</Text>
+                <Slider
+                  style={styles.compactSlider}
+                  minimumValue={0}
+                  maximumValue={1}
+                  value={volume}
+                  onValueChange={handleVolumeChange}
+                  onSlidingComplete={handleVolumeComplete}
+                  minimumTrackTintColor={colors.primary}
+                  maximumTrackTintColor={colors.border}
+                  thumbTintColor={colors.primary}
+                />
+                <Text style={styles.sliderValue}>{Math.round(volume * 100)}</Text>
+              </View>
+
+              <View style={styles.sliderGroup}>
+                <Text style={styles.sliderLabel}>⚡</Text>
+                <Slider
+                  style={styles.compactSlider}
+                  minimumValue={0.5}
+                  maximumValue={2}
+                  value={speed}
+                  step={0.1}
+                  onValueChange={handleSpeedChange}
+                  onSlidingComplete={handleSpeedComplete}
+                  minimumTrackTintColor={colors.primary}
+                  maximumTrackTintColor={colors.border}
+                  thumbTintColor={colors.primary}
+                />
+                <Text style={styles.sliderValue}>{speed.toFixed(1)}</Text>
+              </View>
+            </View>
+          </>
+        )}
+      </View>
     </View>
   );
 };
@@ -442,75 +452,124 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.surface,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
+    marginBottom: 12,
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    padding: 12,
+    backgroundColor: colors.backgroundSecondary,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   playerLabel: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: colors.textPrimary,
   },
   loadButton: {
     backgroundColor: colors.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   loadButtonText: {
-    color: colors.background,
+    fontSize: 18,
+  },
+  playlistSection: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.backgroundTertiary,
+  },
+  playlistToggle: {
+    padding: 10,
+    paddingHorizontal: 12,
+  },
+  playlistToggleText: {
+    fontSize: 12,
     fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  playlistList: {
+    maxHeight: 150,
+  },
+  playlistContent: {
+    paddingBottom: 4,
+  },
+  playlistItem: {
+    flexDirection: 'row',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border + '30',
+  },
+  activePlaylistItem: {
+    backgroundColor: colors.primary + '20',
+  },
+  playlistIndex: {
+    fontSize: 10,
+    color: colors.textMuted,
+    width: 24,
+  },
+  playlistItemText: {
+    flex: 1,
+    fontSize: 10,
+    color: colors.textPrimary,
+  },
+  activePlaylistItemText: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  playerArea: {
+    padding: 12,
   },
   emptyState: {
     alignItems: 'center',
     paddingVertical: 40,
   },
   emptyText: {
-    fontSize: 16,
-    color: colors.textSecondary,
-    marginBottom: 8,
-  },
-  emptySubtext: {
-    fontSize: 14,
+    fontSize: 13,
     color: colors.textMuted,
+    textAlign: 'center',
   },
   trackInfo: {
-    marginBottom: 16,
     alignItems: 'center',
+    marginBottom: 12,
   },
   trackTitle: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: 'bold',
     color: colors.textPrimary,
     marginBottom: 4,
+    textAlign: 'center',
   },
   trackArtist: {
-    fontSize: 14,
+    fontSize: 11,
     color: colors.textSecondary,
     marginBottom: 4,
   },
   playlistInfo: {
-    fontSize: 12,
+    fontSize: 10,
     color: colors.textMuted,
   },
   progressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   progressSlider: {
     flex: 1,
     marginHorizontal: 8,
+    height: 30,
   },
   timeText: {
-    fontSize: 12,
+    fontSize: 10,
     color: colors.textSecondary,
-    width: 45,
+    width: 38,
   },
   controls: {
     flexDirection: 'row',
@@ -518,9 +577,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
+  smallButton: {
+    padding: 8,
+  },
+  smallIcon: {
+    fontSize: 18,
+    color: colors.textPrimary,
+  },
   controlButton: {
-    padding: 12,
-    marginHorizontal: 8,
+    padding: 8,
+    marginHorizontal: 4,
   },
   controlIcon: {
     fontSize: 24,
@@ -531,74 +597,38 @@ const styles = StyleSheet.create({
   },
   playButton: {
     backgroundColor: colors.primary,
-    borderRadius: 35,
-    width: 70,
-    height: 70,
+    borderRadius: 30,
+    width: 60,
+    height: 60,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  playIcon: {
-    fontSize: 32,
-    color: colors.background,
-  },
-  sliderContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  sliderLabel: {
-    fontSize: 14,
-    color: colors.textPrimary,
-    width: 80,
-  },
-  slider: {
-    flex: 1,
     marginHorizontal: 8,
   },
-  sliderValue: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    width: 50,
-    textAlign: 'right',
+  playIcon: {
+    fontSize: 28,
+    color: colors.background,
   },
-  playlistToggle: {
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+  sliderRow: {
     marginTop: 8,
   },
-  playlistToggleText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textPrimary,
-  },
-  playlist: {
-    maxHeight: 200,
-    marginTop: 8,
-  },
-  playlistItem: {
+  sliderGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    marginBottom: 8,
   },
-  activePlaylistItem: {
-    backgroundColor: colors.primaryLight,
+  sliderLabel: {
+    fontSize: 16,
+    width: 24,
   },
-  playlistIndex: {
-    fontSize: 12,
-    color: colors.textMuted,
-    width: 30,
-  },
-  playlistItemText: {
+  compactSlider: {
     flex: 1,
-    fontSize: 14,
-    color: colors.textPrimary,
+    marginHorizontal: 8,
+    height: 30,
   },
-  activePlaylistItemText: {
-    color: colors.primary,
-    fontWeight: '600',
+  sliderValue: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    width: 32,
+    textAlign: 'right',
   },
 });
