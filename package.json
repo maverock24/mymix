@@ -10,12 +10,15 @@
     "build": "expo export --platform web --output-dir dist"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/slider": "^5.0.1",
     "@types/localforage": "^0.0.33",
-    "expo": "~54.0.12",
+    "expo": "54.0.13",
     "expo-av": "^16.0.7",
+    "expo-dev-client": "^6.0.15",
     "expo-document-picker": "^14.0.7",
     "expo-status-bar": "~3.0.8",
+    "expo-updates": "~29.0.12",
     "localforage": "^1.10.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",

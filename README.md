@@ -1,23 +1,52 @@
-# MyMix - Audio Mixing App
+# MyMix - Dual MP3 Player
 
-A React Native Expo app for mixing and playing two audio files simultaneously (e.g., background music + audiobook). Built with TypeScript and ready for web deployment on Netlify.
+A powerful React Native Expo app that lets you play two MP3 playlists simultaneously with independent controls. Perfect for combining background music with audiobooks, podcasts, or ambient sounds.
 
 ## Features
 
-- **Dual Audio Playback**: Play two audio files simultaneously
-- **Volume Control**: Adjust volume for each audio track independently
-- **Speed Control**: Adjust playback speed (0.5x to 2.0x) for each track
-- **Local Storage**: Store audio pairs in IndexedDB for offline access
-- **Tile UI**: Browse and select from previously saved audio pairs
-- **File Upload**: Select MP3 files from your device
+### Dual Player System
+- **Two Independent Players**: Control two separate playlists at once
+- **Play/Pause Control**: Independent playback control for each player
+- **Track Navigation**: Skip forward, skip backward, or restart tracks
+- **Progress Bars**: Visual playback progress with seek functionality
+
+### Playlist Management
+- **File Selection**: Pick multiple MP3 files at once
+- **Alphabetical Sorting**: Tracks automatically sorted A-Z
+- **Saved Playlists**: Save and reload your favorite combinations
+- **Track Counter**: See current track position (e.g., "5 / 12")
+- **Expandable Playlist View**: Tap to see and select from all tracks
+
+### Playback Controls
+- **Shuffle Mode**: Randomize track order
+- **Repeat Modes**:
+  - Off: Stop at end of playlist
+  - All: Loop entire playlist
+  - One: Repeat current track
+- **Volume Control**: Independent volume sliders (0-100%)
+- **Speed Control**: Adjust playback speed (0.5x - 2.0x)
+- **Track Progress**: Seek to any position in the track
+
+### Smart Features
+- **Auto-Play Next**: Automatically plays next track
+- **Track Parsing**: Extracts artist and title from filenames
+- **State Persistence**: Remembers your playlists and positions
+- **Dark Theme**: Easy on the eyes with Supabase-inspired design
 
 ## Tech Stack
 
 - React Native with Expo
 - TypeScript
 - expo-av (Audio playback)
-- localforage (IndexedDB storage)
 - expo-document-picker (File selection)
+- @react-native-async-storage/async-storage (Android/iOS storage)
+- localforage (Web storage)
+
+## Platform Support
+
+- **Android**: Full support with AsyncStorage
+- **iOS**: Full support with AsyncStorage
+- **Web**: Full support with IndexedDB
 
 ## Getting Started
 
@@ -50,85 +79,106 @@ npm run ios
 npm run android
 ```
 
-## Deploying to Netlify
+## Building for Android
 
-### Option 1: Deploy via Netlify CLI
+### Development Build with OTA Updates (Recommended)
 
-1. Install Netlify CLI:
+Use Option 1 (Expo Updates) for development:
+
+1. Build the development client once:
+   ```bash
+   eas build --platform android --profile development
+   ```
+
+2. Install it on your phone
+
+3. For all future updates:
+   ```bash
+   eas update --branch development
+   ```
+
+This way you never need to reinstall APKs - updates happen over-the-air instantly!
+
+### Production Build
+
 ```bash
-npm install -g netlify-cli
+# For APK (testing/distribution)
+eas build --platform android --profile preview
+
+# For Google Play Store (AAB)
+eas build --platform android --profile production
 ```
-
-2. Build the app:
-```bash
-npm run build
-```
-
-3. Deploy:
-```bash
-netlify deploy --prod --dir=dist
-```
-
-### Option 2: Deploy via Netlify Dashboard
-
-1. Push your code to a Git repository (GitHub, GitLab, or Bitbucket)
-
-2. Go to [Netlify](https://app.netlify.com/) and sign in
-
-3. Click "Add new site" → "Import an existing project"
-
-4. Connect your Git repository
-
-5. Configure build settings:
-   - **Build command**: `npm run build`
-   - **Publish directory**: `dist`
-
-6. Click "Deploy site"
-
-### Option 3: Manual Deploy
-
-1. Build the app:
-```bash
-npm run build
-```
-
-2. Go to [Netlify Drop](https://app.netlify.com/drop)
-
-3. Drag and drop the `dist` folder
 
 ## Usage
 
-1. **Add Audio Pair**: Click "+ Add New Audio Pair" button
-2. **Name Your Mix**: Enter a name for the audio pair
-3. **Select Files**: Choose background music and audiobook files
-4. **Save**: Store the pair in IndexedDB
-5. **Play**: Select a saved pair from tiles to start playback
-6. **Control**: Adjust volume and speed for each track independently
+### Quick Start
+
+1. **Load Playlist**: Tap the "📁 Load" button on Player 1
+2. **Select Files**: Choose multiple MP3 files
+3. **Play**: Hit the play button
+4. **Load Second Player**: Repeat for Player 2
+5. **Mix Audio**: Both tracks play simultaneously!
+
+### Player Controls
+
+- **▶/⏸**: Play/Pause
+- **⏮**: Previous track (or restart if >3 seconds played)
+- **⏭**: Next track
+- **🔀**: Shuffle mode
+- **🔁/🔂**: Repeat modes (off/all/one)
+- **🔊**: Volume control
+- **⚡**: Playback speed
+
+### Managing Playlists
+
+- **Save**: Playlists are automatically saved when loaded
+- **Reload**: Access saved playlists from the Load modal
+- **Delete**: Swipe or tap 🗑 to remove saved playlists
+- **Track Selection**: Expand playlist and tap any track to jump to it
+
+### Typical Use Cases
+
+- **Audiobook + Music**: Listen to audiobooks with background music
+- **Podcast + Ambience**: Add ambient sounds to podcasts
+- **Study Mix**: Combine binaural beats with study music
+- **Language Learning**: Play lessons with background music
+- **Meditation**: Mix guided meditation with nature sounds
 
 ## Project Structure
 
 ```
 mymix/
 ├── components/
-│   ├── AudioPairTile.tsx      # Tile component for displaying saved pairs
-│   └── DualAudioPlayer.tsx    # Dual audio player with controls
+│   └── SinglePlayer.tsx       # Individual MP3 player component
 ├── screens/
-│   ├── HomeScreen.tsx          # Main screen with audio pair tiles
-│   ├── AddAudioPairScreen.tsx  # Screen to add new audio pairs
-│   └── PlayerScreen.tsx        # Player screen
+│   └── MainPlayerScreen.tsx   # Main dual player screen
 ├── services/
-│   └── storage.ts              # IndexedDB storage service
-├── App.tsx                     # Main app component
-├── netlify.toml               # Netlify configuration
+│   ├── storage.ts             # Storage service (AsyncStorage/IndexedDB)
+│   └── playlistService.ts     # Playlist & track management
+├── theme/
+│   └── colors.ts              # Dark theme colors
+├── App.tsx                    # Main app component
 └── package.json
-
 ```
+
+## Storage
+
+### Android/iOS
+- Uses **AsyncStorage** for playlist metadata and references
+- Audio files remain in their original locations
+- Only file URIs are stored (no duplication)
+
+### Web
+- Uses **IndexedDB** via localforage
+- Stores Blob data for offline access
 
 ## Notes
 
-- Audio files are stored as Base64 encoded strings in IndexedDB
-- The app works best on web and may have limitations on mobile devices
-- Large audio files may take time to load and store
+- Recommended file format: MP3, M4A, WAV, OGG
+- Files with "Artist - Title" format are automatically parsed
+- Player state is automatically saved
+- Each player has independent volume and speed controls
+- Supports simultaneous playback of 2 tracks
 
 ## License
 

@@ -29,6 +29,7 @@ export const colors = {
   inputBackground: '#1f2937',
   buttonBackground: '#252d3d',
   cardBackground: '#1a1f2e',
+  surface: '#1a1f2e',
 
   // Overlays
   overlay: 'rgba(0, 0, 0, 0.7)',
