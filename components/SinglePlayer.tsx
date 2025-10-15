@@ -547,8 +547,14 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
 
             {/* Playback Controls */}
             <View style={styles.controls}>
-              <TouchableOpacity onPress={toggleShuffle} style={styles.smallButton}>
-                <Text style={[styles.smallIcon, shuffle && styles.activeControl]}>🔀</Text>
+              <TouchableOpacity
+                onPress={toggleShuffle}
+                style={[styles.modeButton, shuffle && styles.modeButtonActive]}
+              >
+                <Text style={styles.modeIcon}>🔀</Text>
+                <Text style={[styles.modeLabel, !shuffle && styles.modeLabelInactive]}>
+                  {shuffle ? 'ON' : 'OFF'}
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity onPress={handlePrevious} style={styles.controlButton}>
@@ -571,9 +577,15 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                 <Text style={styles.controlIcon}>⏭</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity onPress={cycleRepeat} style={styles.smallButton}>
-                <Text style={[styles.smallIcon, repeat !== 'off' && styles.activeControl]}>
+              <TouchableOpacity
+                onPress={cycleRepeat}
+                style={[styles.modeButton, repeat !== 'off' && styles.modeButtonActive]}
+              >
+                <Text style={styles.modeIcon}>
                   {repeat === 'one' ? '🔂' : '🔁'}
+                </Text>
+                <Text style={[styles.modeLabel, repeat === 'off' && styles.modeLabelInactive]}>
+                  {repeat === 'one' ? '1' : repeat === 'all' ? 'ALL' : 'OFF'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -755,13 +767,38 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
+    gap: 8,
   },
-  smallButton: {
-    padding: 8,
+  modeButton: {
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: colors.border,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    width: 50,
+    height: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  smallIcon: {
+  modeButtonActive: {
+    backgroundColor: colors.primary + '25',
+    borderColor: colors.primary,
+  },
+  modeIcon: {
     fontSize: 18,
-    color: colors.textPrimary,
+    marginBottom: 2,
+  },
+  modeLabel: {
+    fontSize: 8,
+    fontWeight: 'bold',
+    color: colors.primary,
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  modeLabelInactive: {
+    color: colors.textMuted,
+    opacity: 0.6,
   },
   controlButton: {
     padding: 8,
@@ -770,9 +807,6 @@ const styles = StyleSheet.create({
   controlIcon: {
     fontSize: 24,
     color: colors.textPrimary,
-  },
-  activeControl: {
-    color: colors.primary,
   },
   playButton: {
     backgroundColor: colors.primary,
