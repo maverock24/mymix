@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Audio } from 'expo-av';
 import Slider from '@react-native-community/slider';
-import { MediaControl, PlaybackState, Command } from 'expo-media-control';
+import { MediaControl, PlaybackState, Command } from '../services/mediaControl';
 import { Track, Playlist, PlayerState, RepeatMode } from '../services/storage';
 import { PlaylistService } from '../services/playlistService';
 import { colors } from '../theme/colors';
