@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import {
   View,
   Text,
@@ -24,14 +24,19 @@ interface SinglePlayerProps {
   isActiveMediaControl?: boolean;
 }
 
-export const SinglePlayer: React.FC<SinglePlayerProps> = ({
+export interface SinglePlayerRef {
+  pause: () => Promise<void>;
+  play: () => Promise<void>;
+}
+
+export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   playlist,
   playerNumber,
   initialState,
   onStateChange,
   onLoadPlaylist,
   isActiveMediaControl = false,
-}) => {
+}, ref) => {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -49,8 +54,25 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
   const lastPositionUpdate = useRef(0);
   const POSITION_UPDATE_INTERVAL = 500;
   const blobUrl = useRef<string | null>(null);
+  const isInitialLoad = useRef(true);
 
   const currentTrack = playlist?.tracks[currentTrackIndex];
+
+  // Expose pause and play methods to parent via ref
+  useImperativeHandle(ref, () => ({
+    pause: async () => {
+      if (sound && isPlaying) {
+        await sound.pauseAsync();
+        setIsPlaying(false);
+      }
+    },
+    play: async () => {
+      if (sound && !isPlaying) {
+        await sound.playAsync();
+        setIsPlaying(true);
+      }
+    },
+  }), [sound, isPlaying]);
 
   // Emit state changes
   useEffect(() => {
@@ -220,16 +242,35 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
       );
 
       setSound(newSound);
-      setPosition(0);
 
-      // Auto-play if flag is set
-      if (shouldAutoPlay) {
+      // On initial load, restore saved position; otherwise reset to 0
+      if (isInitialLoad.current && initialState?.position) {
         try {
-          await newSound.playAsync();
-          setIsPlaying(true);
-          setShouldAutoPlay(false);
+          await newSound.setPositionAsync(initialState.position);
+          setPosition(initialState.position);
+          isInitialLoad.current = false;
+
+          // If was playing before, resume playback
+          if (initialState.isPlaying) {
+            await newSound.playAsync();
+            setIsPlaying(true);
+          }
         } catch (error) {
-          console.error('Error auto-playing track:', error);
+          console.error('Error restoring position:', error);
+          setPosition(0);
+        }
+      } else {
+        setPosition(0);
+
+        // Auto-play if flag is set
+        if (shouldAutoPlay) {
+          try {
+            await newSound.playAsync();
+            setIsPlaying(true);
+            setShouldAutoPlay(false);
+          } catch (error) {
+            console.error('Error auto-playing track:', error);
+          }
         }
       }
     } catch (error) {
@@ -577,7 +618,7 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
       </View>
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -770,3 +811,5 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
 });
+
+SinglePlayer.displayName = 'SinglePlayer';

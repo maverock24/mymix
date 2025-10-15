@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,10 +6,13 @@ import {
   ScrollView,
   Alert,
   Platform,
+  TouchableOpacity,
+  Modal,
 } from 'react-native';
-import { SinglePlayer } from '../components/SinglePlayer';
+import { SinglePlayer, SinglePlayerRef } from '../components/SinglePlayer';
 import { StorageService, Playlist, DualPlayerState } from '../services/storage';
 import { PlaylistService } from '../services/playlistService';
+import { SleepTimer, SleepTimerDuration, SleepTimerState } from '../services/sleepTimer';
 import { colors } from '../theme/colors';
 
 export const MainPlayerScreen: React.FC = () => {
@@ -17,10 +20,48 @@ export const MainPlayerScreen: React.FC = () => {
   const [playlist2, setPlaylist2] = useState<Playlist | null>(null);
   const [dualState, setDualState] = useState<DualPlayerState | null>(null);
   const [activeMediaControlPlayer, setActiveMediaControlPlayer] = useState<1 | 2>(1);
+  const [sleepTimerState, setSleepTimerState] = useState<SleepTimerState>({
+    isActive: false,
+    remainingSeconds: 0,
+    totalSeconds: 0,
+  });
+  const [showSleepTimerModal, setShowSleepTimerModal] = useState(false);
+
+  const player1Ref = useRef<SinglePlayerRef>(null);
+  const player2Ref = useRef<SinglePlayerRef>(null);
+  const sleepTimer = SleepTimer.getInstance();
 
   // Load saved state on mount
   useEffect(() => {
     loadSavedState();
+  }, []);
+
+  // Subscribe to sleep timer updates
+  useEffect(() => {
+    const unsubscribe = sleepTimer.addListener((state) => {
+      setSleepTimerState(state);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // Handle sleep timer completion - pause both players
+  const handleSleepTimerComplete = useCallback(async () => {
+    try {
+      // Pause both players
+      await Promise.all([
+        player1Ref.current?.pause(),
+        player2Ref.current?.pause(),
+      ]);
+
+      if (Platform.OS !== 'web') {
+        Alert.alert('Sleep Timer', 'Sleep timer finished - playback stopped');
+      }
+    } catch (error) {
+      console.error('Error pausing players:', error);
+    }
   }, []);
 
   const loadSavedState = async () => {
@@ -170,15 +211,48 @@ export const MainPlayerScreen: React.FC = () => {
     [dualState, activeMediaControlPlayer]
   );
 
+  const handleStartSleepTimer = (minutes: SleepTimerDuration) => {
+    sleepTimer.start(minutes, handleSleepTimerComplete);
+    setShowSleepTimerModal(false);
+    if (Platform.OS !== 'web') {
+      Alert.alert('Sleep Timer', `Timer set for ${minutes} minutes`);
+    }
+  };
+
+  const handleStopSleepTimer = () => {
+    sleepTimer.stop();
+    if (Platform.OS !== 'web') {
+      Alert.alert('Sleep Timer', 'Timer cancelled');
+    }
+  };
+
+  const sleepTimerDurations: SleepTimerDuration[] = [5, 10, 15, 30, 45, 60, 90, 120];
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>MyMix - Dual MP3 Player</Text>
-        <Text style={styles.subtitle}>Play two audio tracks simultaneously</Text>
+        <View style={styles.headerTop}>
+          <View style={styles.headerText}>
+            <Text style={styles.title}>MyMix - Dual MP3 Player</Text>
+            <Text style={styles.subtitle}>Play two audio tracks simultaneously</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.sleepTimerButton}
+            onPress={() => setShowSleepTimerModal(true)}
+          >
+            <Text style={styles.sleepTimerIcon}>😴</Text>
+            {sleepTimerState.isActive && (
+              <Text style={styles.sleepTimerText}>
+                {sleepTimer.formatTime(sleepTimerState.remainingSeconds)}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <SinglePlayer
+          ref={player1Ref}
           playlist={playlist1}
           playerNumber={1}
           initialState={dualState?.player1}
@@ -188,6 +262,7 @@ export const MainPlayerScreen: React.FC = () => {
         />
 
         <SinglePlayer
+          ref={player2Ref}
           playlist={playlist2}
           playerNumber={2}
           initialState={dualState?.player2}
@@ -196,6 +271,53 @@ export const MainPlayerScreen: React.FC = () => {
           isActiveMediaControl={activeMediaControlPlayer === 2}
         />
       </ScrollView>
+
+      {/* Sleep Timer Modal */}
+      <Modal
+        visible={showSleepTimerModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowSleepTimerModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSleepTimerModal(false)}
+        >
+          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+            <Text style={styles.modalTitle}>Sleep Timer</Text>
+            <Text style={styles.modalSubtitle}>Playback will stop after:</Text>
+
+            <View style={styles.timerGrid}>
+              {sleepTimerDurations.map((minutes) => (
+                <TouchableOpacity
+                  key={minutes}
+                  style={styles.timerOption}
+                  onPress={() => handleStartSleepTimer(minutes)}
+                >
+                  <Text style={styles.timerOptionText}>{minutes} min</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {sleepTimerState.isActive && (
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={handleStopSleepTimer}
+              >
+                <Text style={styles.cancelButtonText}>Cancel Timer</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setShowSleepTimerModal(false)}
+            >
+              <Text style={styles.closeButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 };
@@ -212,6 +334,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerText: {
+    flex: 1,
+  },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
@@ -222,10 +352,103 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textSecondary,
   },
+  sleepTimerButton: {
+    backgroundColor: colors.surface,
+    borderRadius: 8,
+    padding: 8,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
+  },
+  sleepTimerIcon: {
+    fontSize: 20,
+  },
+  sleepTimerText: {
+    fontSize: 10,
+    color: colors.primary,
+    fontWeight: '600',
+    marginTop: 2,
+  },
   scrollView: {
     flex: 1,
   },
   content: {
     padding: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: colors.textPrimary,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  timerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  timerOption: {
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 8,
+    padding: 16,
+    width: '48%',
+    marginBottom: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  timerOptionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  cancelButton: {
+    backgroundColor: colors.error || '#EF4444',
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  closeButton: {
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  closeButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary,
   },
 });

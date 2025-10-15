@@ -23,7 +23,18 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.maverock24.mymix"
+      "package": "com.maverock24.mymix",
+      "permissions": [
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "WAKE_LOCK"
+      ],
+      "usesLibrary": [
+        {
+          "name": "androidx.car.app.app-automotive",
+          "required": false
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -39,6 +50,16 @@
             "name": "MyMix Media",
             "description": "Controls for audio playback",
             "importance": "low"
+          },
+          "android": {
+            "enableMediaSession": true,
+            "enableAutoSupport": true,
+            "mediaSessionExtras": {
+              "androidx.media.session.ARGUMENT_MEDIA_ATTRIBUTE_PRESENTATION_MODE_CONTENT_ITEM": "true"
+            }
+          },
+          "ios": {
+            "enableCarPlay": true
           }
         }
       ]
