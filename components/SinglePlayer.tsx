@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Audio } from 'expo-av';
 import Slider from '@react-native-community/slider';
+import { MediaControl, PlaybackState, Command } from 'expo-media-control';
 import { Track, Playlist, PlayerState, RepeatMode } from '../services/storage';
 import { PlaylistService } from '../services/playlistService';
 import { colors } from '../theme/colors';
@@ -41,6 +42,7 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
   const [shuffle, setShuffle] = useState(initialState?.shuffle || false);
   const [shuffledIndices, setShuffledIndices] = useState<number[]>(initialState?.shuffledIndices || []);
   const [showPlaylist, setShowPlaylist] = useState(false);
+  const [shouldAutoPlay, setShouldAutoPlay] = useState(false);
 
   const lastPositionUpdate = useRef(0);
   const POSITION_UPDATE_INTERVAL = 500;
@@ -74,6 +76,107 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
       unloadSound();
     };
   }, [currentTrackIndex, playlist]);
+
+  // Initialize media controls (only for Player 1 to avoid conflicts)
+  useEffect(() => {
+    if (Platform.OS === 'web' || playerNumber !== 1) return;
+
+    const initializeMediaControls = async () => {
+      try {
+        await MediaControl.enableMediaControls({
+          capabilities: [
+            Command.PLAY,
+            Command.PAUSE,
+            Command.STOP,
+            Command.NEXT_TRACK,
+            Command.PREVIOUS_TRACK,
+          ],
+          notification: {
+            icon: 'ic_music_note',
+            color: '#3ECF8E',
+          },
+        });
+
+        // Subscribe to media control events
+        const removeListener = MediaControl.addListener((event) => {
+          switch (event.command) {
+            case Command.PLAY:
+            case Command.PAUSE:
+              togglePlayPause();
+              break;
+            case Command.STOP:
+              if (sound) {
+                sound.stopAsync().then(() => setIsPlaying(false));
+              }
+              break;
+            case Command.NEXT_TRACK:
+              handleNext();
+              break;
+            case Command.PREVIOUS_TRACK:
+              handlePrevious();
+              break;
+          }
+        });
+
+        // Return cleanup function
+        return removeListener;
+      } catch (error) {
+        console.error('Error initializing media controls:', error);
+        return () => {};
+      }
+    };
+
+    let cleanup: (() => void) | undefined;
+    initializeMediaControls().then((fn) => {
+      cleanup = fn;
+    });
+
+    return () => {
+      if (cleanup) {
+        cleanup();
+      }
+      if (Platform.OS !== 'web') {
+        MediaControl.removeAllListeners();
+      }
+    };
+  }, [playerNumber]);
+
+  // Update media control metadata when track changes
+  useEffect(() => {
+    if (Platform.OS === 'web' || playerNumber !== 1 || !currentTrack) return;
+
+    const updateMediaMetadata = async () => {
+      try {
+        const trackInfo = PlaylistService.parseTrackName(currentTrack.name);
+        await MediaControl.updateMetadata({
+          title: trackInfo.title,
+          artist: trackInfo.artist || 'Unknown Artist',
+          album: playlist?.name || 'MyMix',
+          duration: duration / 1000, // Convert to seconds
+        });
+      } catch (error) {
+        console.error('Error updating media metadata:', error);
+      }
+    };
+
+    updateMediaMetadata();
+  }, [currentTrack, duration, playerNumber, playlist]);
+
+  // Update playback state when playing status changes
+  useEffect(() => {
+    if (Platform.OS === 'web' || playerNumber !== 1) return;
+
+    const updatePlaybackState = async () => {
+      try {
+        const state = isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED;
+        await MediaControl.updatePlaybackState(state);
+      } catch (error) {
+        console.error('Error updating playback state:', error);
+      }
+    };
+
+    updatePlaybackState();
+  }, [isPlaying, playerNumber]);
 
   const unloadSound = async () => {
     if (sound) {
@@ -116,6 +219,17 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
 
       setSound(newSound);
       setPosition(0);
+
+      // Auto-play if flag is set
+      if (shouldAutoPlay) {
+        try {
+          await newSound.playAsync();
+          setIsPlaying(true);
+          setShouldAutoPlay(false);
+        } catch (error) {
+          console.error('Error auto-playing track:', error);
+        }
+      }
     } catch (error) {
       console.error('Error loading track:', error);
     } finally {
@@ -156,6 +270,8 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
     );
 
     if (nextIndex !== null) {
+      // Auto-play next track since this was triggered by track finishing
+      setShouldAutoPlay(true);
       setCurrentTrackIndex(nextIndex);
       setPosition(0);
     } else {
@@ -191,6 +307,10 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
     );
 
     if (nextIndex !== null) {
+      // Set flag to auto-play if currently playing
+      if (isPlaying) {
+        setShouldAutoPlay(true);
+      }
       setCurrentTrackIndex(nextIndex);
       setPosition(0);
     }
@@ -215,6 +335,10 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
     );
 
     if (prevIndex !== null) {
+      // Set flag to auto-play if currently playing
+      if (isPlaying) {
+        setShouldAutoPlay(true);
+      }
       setCurrentTrackIndex(prevIndex);
       setPosition(0);
     }
@@ -337,7 +461,12 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
       <View style={styles.playerArea}>
         {!playlist ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>Tap 📁 to select audio files</Text>
+            <Text style={styles.emptyText}>Tap 📁 to select a folder</Text>
+            <Text style={styles.emptySubtext}>
+              {Platform.OS === 'web'
+                ? 'Multiple file selection on web'
+                : 'Choose a folder with your audio files'}
+            </Text>
           </View>
         ) : (
           <>
@@ -535,6 +664,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textMuted,
     textAlign: 'center',
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    fontSize: 11,
+    color: colors.textMuted,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   trackInfo: {
     alignItems: 'center',

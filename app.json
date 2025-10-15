@@ -27,6 +27,21 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "plugins": [
+      [
+        "expo-media-control",
+        {
+          "enableBackgroundAudio": true,
+          "audioSessionCategory": "playback",
+          "skipInterval": 15,
+          "notificationChannel": {
+            "name": "MyMix Media",
+            "description": "Controls for audio playback",
+            "importance": "low"
+          }
+        }
+      ]
+    ],
     "extra": {
       "eas": {
         "projectId": "94410ac1-302d-4fa7-9f48-11066e334f8e"

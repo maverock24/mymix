@@ -11,7 +11,8 @@ A powerful React Native Expo app that lets you play two MP3 playlists simultaneo
 - **Progress Bars**: Visual playback progress with seek functionality
 
 ### Playlist Management
-- **File Selection**: Pick multiple MP3 files at once
+- **Folder Selection**: Select an entire folder to load all audio files at once (Android/iOS)
+- **File Selection**: Pick multiple MP3 files at once (Web fallback)
 - **Alphabetical Sorting**: Tracks automatically sorted A-Z
 - **Saved Playlists**: Save and reload your favorite combinations
 - **Track Counter**: See current track position (e.g., "5 / 12")
@@ -29,16 +30,19 @@ A powerful React Native Expo app that lets you play two MP3 playlists simultaneo
 
 ### Smart Features
 - **Auto-Play Next**: Automatically plays next track
+- **Lock Screen Controls**: Control playback from lock screen and notifications (Android/iOS)
 - **Track Parsing**: Extracts artist and title from filenames
 - **State Persistence**: Remembers your playlists and positions
 - **Dark Theme**: Easy on the eyes with Supabase-inspired design
 
 ## Tech Stack
 
-- React Native with Expo
+- React Native with Expo SDK 54
 - TypeScript
 - expo-av (Audio playback)
-- expo-document-picker (File selection)
+- expo-file-system (Folder selection)
+- expo-document-picker (File selection fallback)
+- expo-media-control (Lock screen controls)
 - @react-native-async-storage/async-storage (Android/iOS storage)
 - localforage (Web storage)
 
@@ -114,10 +118,12 @@ eas build --platform android --profile production
 ### Quick Start
 
 1. **Load Playlist**: Tap the "📁 Load" button on Player 1
-2. **Select Files**: Choose multiple MP3 files
+2. **Select Folder**: Choose a folder containing your audio files (Android/iOS)
+   - Or select multiple MP3 files manually (Web)
 3. **Play**: Hit the play button
 4. **Load Second Player**: Repeat for Player 2
 5. **Mix Audio**: Both tracks play simultaneously!
+6. **Lock Screen Controls**: Control playback even when your phone is locked (Android/iOS)
 
 ### Player Controls
 
@@ -174,11 +180,14 @@ mymix/
 
 ## Notes
 
-- Recommended file format: MP3, M4A, WAV, OGG
+- Recommended file format: MP3, M4A, WAV, OGG, AAC, FLAC
+- Folder selection is supported on Android and iOS (SDK 54+)
+- Lock screen controls are available on Android and iOS for Player 1
 - Files with "Artist - Title" format are automatically parsed
 - Player state is automatically saved
 - Each player has independent volume and speed controls
 - Supports simultaneous playback of 2 tracks
+- On iOS, folder access is temporary and requires re-selection after app restart
 
 ## License
 

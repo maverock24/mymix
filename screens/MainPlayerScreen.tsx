@@ -51,8 +51,10 @@ export const MainPlayerScreen: React.FC = () => {
       if (tracks.length === 0) return;
 
       // Extract folder name from the first track's URI
-      const folderName = PlaylistService.getFolderPath(tracks[0].uri).split('/').pop() || 'Folder';
-      const name = folderName;
+      const uri = tracks[0].uri;
+      const lastSlash = uri.lastIndexOf('/');
+      const folderPath = lastSlash >= 0 ? uri.substring(0, lastSlash) : uri;
+      const name = folderPath.split('/').pop() || 'Folder';
 
       const playlist = await StorageService.savePlaylist({
         name,
@@ -102,7 +104,10 @@ export const MainPlayerScreen: React.FC = () => {
       }
 
       if (Platform.OS !== 'web') {
-        Alert.alert('Success', `Loaded ${tracks.length} tracks`);
+        Alert.alert(
+          'Success',
+          `Loaded ${tracks.length} track${tracks.length !== 1 ? 's' : ''} from folder.`
+        );
       }
     } catch (error) {
       console.error('Error picking files:', error);
