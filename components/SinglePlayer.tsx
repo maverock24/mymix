@@ -21,6 +21,7 @@ interface SinglePlayerProps {
   initialState?: PlayerState;
   onStateChange?: (state: PlayerState) => void;
   onLoadPlaylist: () => void;
+  isActiveMediaControl?: boolean;
 }
 
 export const SinglePlayer: React.FC<SinglePlayerProps> = ({
@@ -29,6 +30,7 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
   initialState,
   onStateChange,
   onLoadPlaylist,
+  isActiveMediaControl = false,
 }) => {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -77,9 +79,9 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
     };
   }, [currentTrackIndex, playlist]);
 
-  // Initialize media controls (only for Player 1 to avoid conflicts)
+  // Initialize media controls (only for the active media control player)
   useEffect(() => {
-    if (Platform.OS === 'web' || playerNumber !== 1) return;
+    if (Platform.OS === 'web' || !isActiveMediaControl) return;
 
     const initializeMediaControls = async () => {
       try {
@@ -139,11 +141,11 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
         MediaControl.removeAllListeners();
       }
     };
-  }, [playerNumber]);
+  }, [isActiveMediaControl]);
 
   // Update media control metadata when track changes
   useEffect(() => {
-    if (Platform.OS === 'web' || playerNumber !== 1 || !currentTrack) return;
+    if (Platform.OS === 'web' || !isActiveMediaControl || !currentTrack) return;
 
     const updateMediaMetadata = async () => {
       try {
@@ -151,7 +153,7 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
         await MediaControl.updateMetadata({
           title: trackInfo.title,
           artist: trackInfo.artist || 'Unknown Artist',
-          album: playlist?.name || 'MyMix',
+          album: `${playlist?.name || 'MyMix'} - Player ${playerNumber}`,
           duration: duration / 1000, // Convert to seconds
         });
       } catch (error) {
@@ -160,11 +162,11 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
     };
 
     updateMediaMetadata();
-  }, [currentTrack, duration, playerNumber, playlist]);
+  }, [currentTrack, duration, isActiveMediaControl, playlist, playerNumber]);
 
   // Update playback state when playing status changes
   useEffect(() => {
-    if (Platform.OS === 'web' || playerNumber !== 1) return;
+    if (Platform.OS === 'web' || !isActiveMediaControl) return;
 
     const updatePlaybackState = async () => {
       try {
@@ -176,7 +178,7 @@ export const SinglePlayer: React.FC<SinglePlayerProps> = ({
     };
 
     updatePlaybackState();
-  }, [isPlaying, playerNumber]);
+  }, [isPlaying, isActiveMediaControl]);
 
   const unloadSound = async () => {
     if (sound) {

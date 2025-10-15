@@ -31,6 +31,8 @@ A powerful React Native Expo app that lets you play two MP3 playlists simultaneo
 ### Smart Features
 - **Auto-Play Next**: Automatically plays next track
 - **Lock Screen Controls**: Control playback from lock screen and notifications (Android/iOS)
+  - Automatically switches to whichever player is currently playing
+  - Shows current track, artist, and player number
 - **Track Parsing**: Extracts artist and title from filenames
 - **State Persistence**: Remembers your playlists and positions
 - **Dark Theme**: Easy on the eyes with Supabase-inspired design
@@ -182,7 +184,9 @@ mymix/
 
 - Recommended file format: MP3, M4A, WAV, OGG, AAC, FLAC
 - Folder selection is supported on Android and iOS (SDK 54+)
-- Lock screen controls are available on Android and iOS for Player 1
+- Lock screen controls are available on Android and iOS
+  - Automatically switches to control whichever player is currently playing
+  - Album metadata shows which player is active (e.g., "MyMix - Player 1")
 - Files with "Artist - Title" format are automatically parsed
 - Player state is automatically saved
 - Each player has independent volume and speed controls

@@ -16,6 +16,7 @@ export const MainPlayerScreen: React.FC = () => {
   const [playlist1, setPlaylist1] = useState<Playlist | null>(null);
   const [playlist2, setPlaylist2] = useState<Playlist | null>(null);
   const [dualState, setDualState] = useState<DualPlayerState | null>(null);
+  const [activeMediaControlPlayer, setActiveMediaControlPlayer] = useState<1 | 2>(1);
 
   // Load saved state on mount
   useEffect(() => {
@@ -134,8 +135,13 @@ export const MainPlayerScreen: React.FC = () => {
       };
       setDualState(newDualState);
       StorageService.saveDualPlayerState(newDualState);
+
+      // If player 1 starts playing, make it the active media control player
+      if (state.isPlaying && activeMediaControlPlayer !== 1) {
+        setActiveMediaControlPlayer(1);
+      }
     },
-    [dualState]
+    [dualState, activeMediaControlPlayer]
   );
 
   const handlePlayer2StateChange = useCallback(
@@ -155,8 +161,13 @@ export const MainPlayerScreen: React.FC = () => {
       };
       setDualState(newDualState);
       StorageService.saveDualPlayerState(newDualState);
+
+      // If player 2 starts playing, make it the active media control player
+      if (state.isPlaying && activeMediaControlPlayer !== 2) {
+        setActiveMediaControlPlayer(2);
+      }
     },
-    [dualState]
+    [dualState, activeMediaControlPlayer]
   );
 
   return (
@@ -173,6 +184,7 @@ export const MainPlayerScreen: React.FC = () => {
           initialState={dualState?.player1}
           onStateChange={handlePlayer1StateChange}
           onLoadPlaylist={() => handleLoadPlaylist(1)}
+          isActiveMediaControl={activeMediaControlPlayer === 1}
         />
 
         <SinglePlayer
@@ -181,6 +193,7 @@ export const MainPlayerScreen: React.FC = () => {
           initialState={dualState?.player2}
           onStateChange={handlePlayer2StateChange}
           onLoadPlaylist={() => handleLoadPlaylist(2)}
+          isActiveMediaControl={activeMediaControlPlayer === 2}
         />
       </ScrollView>
     </View>
