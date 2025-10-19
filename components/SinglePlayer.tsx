@@ -960,10 +960,10 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   playlistListContainer: {
-    maxHeight: 200,
+    height: 180,
   },
   playlistList: {
-    flex: 1,
+    height: 180,
   },
   playlistContent: {
     paddingBottom: 4,

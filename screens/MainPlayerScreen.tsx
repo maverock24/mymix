@@ -163,13 +163,6 @@ export const MainPlayerScreen: React.FC = () => {
           },
         } as DualPlayerState));
       }
-
-      if (Platform.OS !== 'web') {
-        Alert.alert(
-          'Success',
-          `Loaded ${tracks.length} track${tracks.length !== 1 ? 's' : ''} from folder.`
-        );
-      }
     } catch (error) {
       console.error('Error picking files:', error);
       if (Platform.OS !== 'web') {
@@ -295,10 +288,6 @@ export const MainPlayerScreen: React.FC = () => {
       await loadPresets();
 
       setShowPresetsModal(false);
-
-      if (Platform.OS !== 'web') {
-        Alert.alert('Success', `Loaded preset: ${preset.name}`);
-      }
     } catch (error) {
       console.error('[MainPlayerScreen] Error loading preset:', error);
       if (Platform.OS !== 'web') {
