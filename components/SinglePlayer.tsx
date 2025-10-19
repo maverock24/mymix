@@ -619,14 +619,22 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
           </TouchableOpacity>
 
           {showPlaylist && (
-            <FlatList
-              data={playlist.tracks}
-              renderItem={renderPlaylistItem}
-              keyExtractor={(item) => item.id}
-              showsVerticalScrollIndicator={true}
-              style={styles.playlistList}
-              contentContainerStyle={styles.playlistContent}
-            />
+            <View
+              style={styles.playlistListContainer}
+              onStartShouldSetResponder={() => true}
+              onMoveShouldSetResponder={() => true}
+            >
+              <FlatList
+                data={playlist.tracks}
+                renderItem={renderPlaylistItem}
+                keyExtractor={(item) => item.id}
+                showsVerticalScrollIndicator={true}
+                style={styles.playlistList}
+                contentContainerStyle={styles.playlistContent}
+                nestedScrollEnabled={true}
+                scrollEnabled={true}
+              />
+            </View>
           )}
         </View>
       )}
@@ -931,8 +939,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.textPrimary,
   },
-  playlistList: {
+  playlistListContainer: {
     maxHeight: 200,
+  },
+  playlistList: {
+    flex: 1,
   },
   playlistContent: {
     paddingBottom: 4,
