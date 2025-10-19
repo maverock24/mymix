@@ -630,22 +630,18 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
           </TouchableOpacity>
 
           {showPlaylist && (
-            <View
-              style={styles.playlistListContainer}
-              onStartShouldSetResponder={() => true}
-              onMoveShouldSetResponder={() => true}
-            >
-              <FlatList
-                data={playlist.tracks}
-                renderItem={renderPlaylistItem}
-                keyExtractor={(item) => item.id}
-                showsVerticalScrollIndicator={true}
-                style={styles.playlistList}
-                contentContainerStyle={styles.playlistContent}
-                nestedScrollEnabled={true}
-                scrollEnabled={true}
-              />
-            </View>
+            <FlatList
+              data={playlist.tracks}
+              renderItem={renderPlaylistItem}
+              keyExtractor={(item) => item.id}
+              showsVerticalScrollIndicator={true}
+              style={styles.playlistList}
+              contentContainerStyle={styles.playlistContent}
+              nestedScrollEnabled={true}
+              scrollEnabled={true}
+              removeClippedSubviews={false}
+              initialNumToRender={20}
+            />
           )}
         </View>
       )}
@@ -770,18 +766,29 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                 {/* Volume Slider */}
                 <View style={styles.verticalSliderContainer}>
                   <Text style={styles.verticalSliderValue}>{Math.round(volume * 100)}</Text>
-                  <View style={styles.verticalSliderWrapper}>
-                    <Slider
-                      style={styles.verticalSlider}
-                      minimumValue={0}
-                      maximumValue={1}
-                      value={volume}
-                      onValueChange={handleVolumeChange}
-                      onSlidingComplete={handleVolumeComplete}
-                      minimumTrackTintColor={colors.primary}
-                      maximumTrackTintColor={colors.border}
-                      thumbTintColor={colors.primary}
-                    />
+                  <View
+                    style={styles.verticalSliderTrack}
+                    onStartShouldSetResponder={() => true}
+                    onMoveShouldSetResponder={() => true}
+                    onResponderGrant={(e) => {
+                      const { locationY } = e.nativeEvent;
+                      const percentage = 1 - (locationY / 140); // 140 is track height
+                      const newValue = Math.max(0, Math.min(1, percentage));
+                      handleVolumeChange(newValue);
+                    }}
+                    onResponderMove={(e) => {
+                      const { locationY } = e.nativeEvent;
+                      const percentage = 1 - (locationY / 140);
+                      const newValue = Math.max(0, Math.min(1, percentage));
+                      handleVolumeChange(newValue);
+                    }}
+                    onResponderRelease={() => {
+                      handleVolumeComplete(volume);
+                    }}
+                  >
+                    <View style={styles.verticalSliderBackground} />
+                    <View style={[styles.verticalSliderFill, { height: `${volume * 100}%` }]} />
+                    <View style={[styles.verticalSliderThumb, { bottom: `${volume * 100}%` }]} />
                   </View>
                   <Text style={styles.verticalSliderLabel}>🔊</Text>
                 </View>
@@ -789,19 +796,29 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                 {/* Speed Slider */}
                 <View style={styles.verticalSliderContainer}>
                   <Text style={styles.verticalSliderValue}>{speed.toFixed(1)}×</Text>
-                  <View style={styles.verticalSliderWrapper}>
-                    <Slider
-                      style={styles.verticalSlider}
-                      minimumValue={0.5}
-                      maximumValue={2}
-                      value={speed}
-                      step={0.1}
-                      onValueChange={handleSpeedChange}
-                      onSlidingComplete={handleSpeedComplete}
-                      minimumTrackTintColor={colors.primary}
-                      maximumTrackTintColor={colors.border}
-                      thumbTintColor={colors.primary}
-                    />
+                  <View
+                    style={styles.verticalSliderTrack}
+                    onStartShouldSetResponder={() => true}
+                    onMoveShouldSetResponder={() => true}
+                    onResponderGrant={(e) => {
+                      const { locationY } = e.nativeEvent;
+                      const percentage = 1 - (locationY / 140);
+                      const newValue = Math.max(0.5, Math.min(2, 0.5 + percentage * 1.5));
+                      handleSpeedChange(newValue);
+                    }}
+                    onResponderMove={(e) => {
+                      const { locationY } = e.nativeEvent;
+                      const percentage = 1 - (locationY / 140);
+                      const newValue = Math.max(0.5, Math.min(2, 0.5 + percentage * 1.5));
+                      handleSpeedChange(newValue);
+                    }}
+                    onResponderRelease={() => {
+                      handleSpeedComplete(speed);
+                    }}
+                  >
+                    <View style={styles.verticalSliderBackground} />
+                    <View style={[styles.verticalSliderFill, { height: `${((speed - 0.5) / 1.5) * 100}%` }]} />
+                    <View style={[styles.verticalSliderThumb, { bottom: `${((speed - 0.5) / 1.5) * 100}%` }]} />
                   </View>
                   <Text style={styles.verticalSliderLabel}>⚡</Text>
                 </View>
@@ -959,11 +976,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.textPrimary,
   },
-  playlistListContainer: {
-    height: 180,
-  },
   playlistList: {
-    height: 180,
+    maxHeight: 180,
   },
   playlistContent: {
     paddingBottom: 4,
@@ -1068,26 +1082,51 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     width: 42,
   },
-  verticalSliderWrapper: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: 150,
-    transform: [{ rotate: '-90deg' }],
+  verticalSliderTrack: {
+    width: 32,
+    height: 140,
+    backgroundColor: colors.border + '40',
+    borderRadius: 16,
+    position: 'relative',
+    overflow: 'hidden',
   },
-  verticalSlider: {
-    width: 150,
-    height: 40,
+  verticalSliderBackground: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    backgroundColor: colors.backgroundSecondary,
+  },
+  verticalSliderFill: {
+    position: 'absolute',
+    bottom: 0,
+    width: '100%',
+    backgroundColor: colors.primary,
+    borderRadius: 16,
+  },
+  verticalSliderThumb: {
+    position: 'absolute',
+    width: 32,
+    height: 32,
+    backgroundColor: colors.primary,
+    borderRadius: 16,
+    marginBottom: -16,
+    borderWidth: 3,
+    borderColor: colors.background,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   verticalSliderValue: {
     fontSize: 10,
     color: colors.textSecondary,
     fontWeight: '600',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   verticalSliderLabel: {
     fontSize: 16,
-    marginTop: 4,
+    marginTop: 6,
   },
   controls: {
     flexDirection: 'row',
