@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Platform,
   FlatList,
+  Modal,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import Slider from '@react-native-community/slider';
@@ -50,13 +51,41 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   const [shuffledIndices, setShuffledIndices] = useState<number[]>(initialState?.shuffledIndices || []);
   const [showPlaylist, setShowPlaylist] = useState(false);
   const [shouldAutoPlay, setShouldAutoPlay] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [crossfadeEnabled, setCrossfadeEnabled] = useState(initialState?.crossfadeEnabled ?? false);
+  const [crossfadeDuration, setCrossfadeDuration] = useState(initialState?.crossfadeDuration ?? 3000);
+  const [gaplessEnabled, setGaplessEnabled] = useState(initialState?.gaplessEnabled ?? true);
 
   const lastPositionUpdate = useRef(0);
   const POSITION_UPDATE_INTERVAL = 500;
   const blobUrl = useRef<string | null>(null);
   const isInitialLoad = useRef(true);
+  const nextSound = useRef<Audio.Sound | null>(null);
+  const isCrossfading = useRef(false);
+  const crossfadeIntervalId = useRef<NodeJS.Timeout | null>(null);
 
   const currentTrack = playlist?.tracks[currentTrackIndex];
+
+  // Initialize audio mode on mount
+  useEffect(() => {
+    const initializeAudioMode = async () => {
+      if (Platform.OS !== 'web') {
+        try {
+          await Audio.setAudioModeAsync({
+            playsInSilentModeIOS: true,
+            staysActiveInBackground: true,
+            shouldDuckAndroid: false,
+            interruptionModeAndroid: 2, // INTERRUPTION_MODE_ANDROID_DO_NOT_MIX
+            interruptionModeIOS: 2, // INTERRUPTION_MODE_IOS_DO_NOT_MIX
+          });
+        } catch (error) {
+          console.error('Error setting audio mode:', error);
+        }
+      }
+    };
+
+    initializeAudioMode();
+  }, []);
 
   // Expose pause and play methods to parent via ref
   useImperativeHandle(ref, () => ({
@@ -87,9 +116,12 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
         shuffle,
         repeat,
         shuffledIndices,
+        crossfadeEnabled,
+        crossfadeDuration,
+        gaplessEnabled,
       });
     }
-  }, [currentTrackIndex, position, volume, speed, isPlaying, shuffle, repeat, shuffledIndices]);
+  }, [currentTrackIndex, position, volume, speed, isPlaying, shuffle, repeat, shuffledIndices, crossfadeEnabled, crossfadeDuration, gaplessEnabled]);
 
   // Load track when index changes
   useEffect(() => {
@@ -211,37 +243,92 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       URL.revokeObjectURL(blobUrl.current);
       blobUrl.current = null;
     }
+    // Also unload preloaded next sound
+    if (nextSound.current) {
+      await nextSound.current.unloadAsync();
+      nextSound.current = null;
+    }
   };
 
-  const loadTrack = async (track: Track) => {
+  const preloadNextTrack = async (track: Track) => {
+    if (nextSound.current) return; // Already preloaded
+
     try {
-      setIsLoading(true);
-      await unloadSound();
-
-      await Audio.setAudioModeAsync({
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: true,
-        shouldDuckAndroid: false,
-      });
-
       let uri = track.uri;
       if (Platform.OS === 'web' && track.data) {
-        blobUrl.current = URL.createObjectURL(track.data);
-        uri = blobUrl.current;
+        uri = URL.createObjectURL(track.data);
       }
 
-      const { sound: newSound } = await Audio.Sound.createAsync(
+      const { sound: preloadedSound } = await Audio.Sound.createAsync(
         { uri },
         {
           volume,
           rate: speed,
           shouldCorrectPitch: true,
-          progressUpdateIntervalMillis: POSITION_UPDATE_INTERVAL,
-        },
-        onPlaybackStatusUpdate
+        }
       );
 
-      setSound(newSound);
+      nextSound.current = preloadedSound;
+    } catch (error) {
+      console.error('Error preloading next track:', error);
+    }
+  };
+
+  const loadTrack = async (track: Track) => {
+    try {
+      setIsLoading(true);
+
+      // Set audio mode first, even for preloaded tracks
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
+        shouldDuckAndroid: false,
+        interruptionModeAndroid: 2, // INTERRUPTION_MODE_ANDROID_DO_NOT_MIX
+        interruptionModeIOS: 2, // INTERRUPTION_MODE_IOS_DO_NOT_MIX
+      });
+
+      let newSound: Audio.Sound;
+
+      // Use preloaded sound for gapless playback if available
+      if (gaplessEnabled && nextSound.current) {
+        newSound = nextSound.current;
+        nextSound.current = null; // Clear the ref
+
+        // Set up status callback for the preloaded sound
+        newSound.setOnPlaybackStatusUpdate(onPlaybackStatusUpdate);
+
+        // Update to current sound before unloading old one
+        const oldSound = sound;
+        setSound(newSound);
+
+        // Unload old sound
+        if (oldSound) {
+          await oldSound.unloadAsync();
+        }
+      } else {
+        // Standard loading
+        await unloadSound();
+
+        let uri = track.uri;
+        if (Platform.OS === 'web' && track.data) {
+          blobUrl.current = URL.createObjectURL(track.data);
+          uri = blobUrl.current;
+        }
+
+        const soundObject = await Audio.Sound.createAsync(
+          { uri },
+          {
+            volume,
+            rate: speed,
+            shouldCorrectPitch: true,
+            progressUpdateIntervalMillis: POSITION_UPDATE_INTERVAL,
+          },
+          onPlaybackStatusUpdate
+        );
+
+        newSound = soundObject.sound;
+        setSound(newSound);
+      }
 
       // On initial load, restore saved position; otherwise reset to 0
       if (isInitialLoad.current && initialState?.position) {
@@ -293,12 +380,29 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
           setDuration(status.durationMillis);
         }
 
+        // Preload next track for gapless playback (when within last 5 seconds)
+        if (gaplessEnabled && playlist && status.durationMillis && !nextSound.current) {
+          const timeRemaining = status.durationMillis - status.positionMillis;
+          if (timeRemaining <= 5000 && timeRemaining > 0) {
+            const nextIndex = PlaylistService.getNextTrackIndex(
+              currentTrackIndex,
+              playlist.tracks.length,
+              repeat,
+              shuffle,
+              shuffledIndices
+            );
+            if (nextIndex !== null) {
+              preloadNextTrack(playlist.tracks[nextIndex]);
+            }
+          }
+        }
+
         if (status.didJustFinish) {
           handleTrackFinish();
         }
       }
     },
-    [duration, currentTrackIndex, playlist]
+    [duration, currentTrackIndex, playlist, gaplessEnabled, repeat, shuffle, shuffledIndices]
   );
 
   const handleTrackFinish = () => {
@@ -470,9 +574,14 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.playerLabel}>Player {playerNumber}</Text>
-        <TouchableOpacity onPress={onLoadPlaylist} style={styles.loadButton}>
-          <Text style={styles.loadButtonText}>📁</Text>
-        </TouchableOpacity>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity onPress={() => setShowSettings(true)} style={styles.settingsButton}>
+            <Text style={styles.settingsButtonText}>⚙️</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onLoadPlaylist} style={styles.loadButton}>
+            <Text style={styles.loadButtonText}>📁</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Playlist - Top Section */}
@@ -625,9 +734,114 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                 <Text style={styles.sliderValue}>{speed.toFixed(1)}</Text>
               </View>
             </View>
+
+            {/* Playback Options */}
+            <View style={styles.playbackOptions}>
+              <TouchableOpacity
+                onPress={() => setGaplessEnabled(!gaplessEnabled)}
+                style={[styles.optionButton, gaplessEnabled && styles.optionButtonActive]}
+              >
+                <Text style={styles.optionIcon}>⚡</Text>
+                <Text style={[styles.optionText, !gaplessEnabled && styles.optionTextInactive]}>
+                  Gapless
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setCrossfadeEnabled(!crossfadeEnabled)}
+                style={[styles.optionButton, crossfadeEnabled && styles.optionButtonActive]}
+              >
+                <Text style={styles.optionIcon}>🎚️</Text>
+                <Text style={[styles.optionText, !crossfadeEnabled && styles.optionTextInactive]}>
+                  Crossfade
+                </Text>
+              </TouchableOpacity>
+            </View>
           </>
         )}
       </View>
+
+      {/* Settings Modal */}
+      <Modal
+        visible={showSettings}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowSettings(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSettings(false)}
+        >
+          <View style={styles.settingsModal} onStartShouldSetResponder={() => true}>
+            <Text style={styles.settingsTitle}>Playback Settings</Text>
+            <Text style={styles.settingsSubtitle}>Player {playerNumber}</Text>
+
+            {/* Gapless Playback Setting */}
+            <View style={styles.settingRow}>
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingLabel}>⚡ Gapless Playback</Text>
+                <Text style={styles.settingDescription}>
+                  Seamless transitions between tracks with no silence
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.toggle, gaplessEnabled && styles.toggleActive]}
+                onPress={() => setGaplessEnabled(!gaplessEnabled)}
+              >
+                <View style={[styles.toggleThumb, gaplessEnabled && styles.toggleThumbActive]} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Crossfade Setting */}
+            <View style={styles.settingRow}>
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingLabel}>🎚️ Crossfade</Text>
+                <Text style={styles.settingDescription}>
+                  Smooth audio transitions between tracks
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.toggle, crossfadeEnabled && styles.toggleActive]}
+                onPress={() => setCrossfadeEnabled(!crossfadeEnabled)}
+              >
+                <View style={[styles.toggleThumb, crossfadeEnabled && styles.toggleThumbActive]} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Crossfade Duration Slider */}
+            {crossfadeEnabled && (
+              <View style={styles.settingRow}>
+                <View style={styles.settingInfo}>
+                  <Text style={styles.settingLabel}>Crossfade Duration</Text>
+                  <Text style={styles.settingDescription}>
+                    {(crossfadeDuration / 1000).toFixed(1)}s fade between tracks
+                  </Text>
+                </View>
+                <Slider
+                  style={styles.durationSlider}
+                  minimumValue={1000}
+                  maximumValue={10000}
+                  step={500}
+                  value={crossfadeDuration}
+                  onValueChange={setCrossfadeDuration}
+                  minimumTrackTintColor={colors.primary}
+                  maximumTrackTintColor={colors.border}
+                  thumbTintColor={colors.primary}
+                />
+              </View>
+            )}
+
+            {/* Close Button */}
+            <TouchableOpacity
+              style={styles.closeSettingsButton}
+              onPress={() => setShowSettings(false)}
+            >
+              <Text style={styles.closeSettingsButtonText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 });
@@ -652,6 +866,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: colors.textPrimary,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  settingsButton: {
+    backgroundColor: colors.backgroundSecondary,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  settingsButtonText: {
+    fontSize: 16,
   },
   loadButton: {
     backgroundColor: colors.primary,
@@ -843,6 +1074,128 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     width: 32,
     textAlign: 'right',
+  },
+  playbackOptions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border + '30',
+  },
+  optionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    gap: 6,
+  },
+  optionButtonActive: {
+    backgroundColor: colors.primary + '20',
+    borderColor: colors.primary,
+  },
+  optionIcon: {
+    fontSize: 14,
+  },
+  optionText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  optionTextInactive: {
+    color: colors.textMuted,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  settingsModal: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  settingsTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: colors.textPrimary,
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  settingsSubtitle: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  settingRow: {
+    marginBottom: 20,
+  },
+  settingInfo: {
+    marginBottom: 12,
+  },
+  settingLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    marginBottom: 4,
+  },
+  settingDescription: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 16,
+  },
+  toggle: {
+    width: 50,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.backgroundSecondary,
+    borderWidth: 2,
+    borderColor: colors.border,
+    padding: 2,
+    justifyContent: 'center',
+  },
+  toggleActive: {
+    backgroundColor: colors.primary + '40',
+    borderColor: colors.primary,
+  },
+  toggleThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.border,
+  },
+  toggleThumbActive: {
+    backgroundColor: colors.primary,
+    alignSelf: 'flex-end',
+  },
+  durationSlider: {
+    width: '100%',
+    height: 40,
+  },
+  closeSettingsButton: {
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  closeSettingsButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.background,
   },
 });
 

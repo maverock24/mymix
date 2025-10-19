@@ -32,6 +32,9 @@ export interface PlayerState {
   shuffle: boolean;
   repeat: RepeatMode;
   shuffledIndices?: number[];
+  crossfadeEnabled: boolean;
+  crossfadeDuration: number; // in milliseconds (e.g., 3000 = 3 seconds)
+  gaplessEnabled: boolean;
 }
 
 export interface DualPlayerState {
@@ -56,21 +59,27 @@ const PLAYER_STATE_KEY = '@mymix_player_state';
 export const StorageService = {
   // Playlist Management
   async savePlaylist(playlist: Omit<Playlist, 'id' | 'createdAt'>): Promise<Playlist> {
-    const newPlaylist: Playlist = {
-      ...playlist,
-      id: `playlist_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      createdAt: Date.now(),
-    };
+    try {
+      const newPlaylist: Playlist = {
+        ...playlist,
+        id: `playlist_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        createdAt: Date.now(),
+      };
 
-    if (Platform.OS === 'web') {
-      await playlistStore.setItem(newPlaylist.id, newPlaylist);
-    } else {
-      const allPlaylists = await this.getAllPlaylists();
-      allPlaylists.push(newPlaylist);
-      await AsyncStorage.setItem(PLAYLISTS_KEY, JSON.stringify(allPlaylists));
+      if (Platform.OS === 'web') {
+        await playlistStore.setItem(newPlaylist.id, newPlaylist);
+      } else {
+        const allPlaylists = await this.getAllPlaylists();
+        allPlaylists.push(newPlaylist);
+        await AsyncStorage.setItem(PLAYLISTS_KEY, JSON.stringify(allPlaylists));
+        console.log('[Storage] Saved playlist:', newPlaylist.name, 'with', newPlaylist.tracks.length, 'tracks');
+      }
+
+      return newPlaylist;
+    } catch (error) {
+      console.error('[Storage] Error saving playlist:', error);
+      throw error;
     }
-
-    return newPlaylist;
   },
 
   async getAllPlaylists(): Promise<Playlist[]> {
@@ -127,19 +136,36 @@ export const StorageService = {
 
   // Player State Management
   async saveDualPlayerState(state: DualPlayerState): Promise<void> {
-    if (Platform.OS === 'web') {
-      await playerStateStore.setItem('dualPlayerState', state);
-    } else {
-      await AsyncStorage.setItem(PLAYER_STATE_KEY, JSON.stringify(state));
+    try {
+      if (Platform.OS === 'web') {
+        await playerStateStore.setItem('dualPlayerState', state);
+      } else {
+        const stateString = JSON.stringify(state);
+        await AsyncStorage.setItem(PLAYER_STATE_KEY, stateString);
+        console.log('[Storage] Saved dual player state:', PLAYER_STATE_KEY);
+      }
+    } catch (error) {
+      console.error('[Storage] Error saving dual player state:', error);
+      throw error;
     }
   },
 
   async getDualPlayerState(): Promise<DualPlayerState | null> {
-    if (Platform.OS === 'web') {
-      return await playerStateStore.getItem<DualPlayerState>('dualPlayerState');
-    } else {
-      const data = await AsyncStorage.getItem(PLAYER_STATE_KEY);
-      return data ? JSON.parse(data) : null;
+    try {
+      if (Platform.OS === 'web') {
+        return await playerStateStore.getItem<DualPlayerState>('dualPlayerState');
+      } else {
+        const data = await AsyncStorage.getItem(PLAYER_STATE_KEY);
+        if (data) {
+          console.log('[Storage] Retrieved dual player state:', PLAYER_STATE_KEY);
+          return JSON.parse(data);
+        }
+        console.log('[Storage] No saved dual player state found');
+        return null;
+      }
+    } catch (error) {
+      console.error('[Storage] Error retrieving dual player state:', error);
+      return null;
     }
   },
 

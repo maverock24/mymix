@@ -38,7 +38,53 @@ export class PlaylistService {
           selectedIndex: 0, // Start with first track
         };
       } else {
-        // Web - fall back to file selection
+        // Web - Use File System Access API for folder selection
+        try {
+          // @ts-ignore - File System Access API might not be in types yet
+          if (typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
+            // Modern browser with folder picker support
+            // @ts-ignore
+            const dirHandle = await window.showDirectoryPicker({
+              mode: 'read',
+            });
+
+            const tracks: Track[] = [];
+            let index = 0;
+
+            // Recursively read all audio files from directory
+            for await (const entry of dirHandle.values()) {
+              if (entry.kind === 'file') {
+                const file = await entry.getFile();
+                if (this.isAudioFile(file.name)) {
+                  // Create blob URL for the file
+                  const blob = new Blob([await file.arrayBuffer()], { type: file.type });
+                  const blobUrl = URL.createObjectURL(blob);
+
+                  tracks.push({
+                    id: `track_${Date.now()}_${index}`,
+                    name: file.name,
+                    uri: blobUrl,
+                    type: file.type || this.getMimeTypeFromUri(file.name),
+                    data: blob, // Store blob for web
+                  });
+                  index++;
+                }
+              }
+            }
+
+            const sortedTracks = tracks.sort((a, b) => a.name.localeCompare(b.name));
+
+            return {
+              tracks: sortedTracks,
+              selectedIndex: 0,
+            };
+          }
+        } catch (error) {
+          // User cancelled or browser doesn't support folder picker
+          console.log('Folder picker not available or cancelled, falling back to file picker');
+        }
+
+        // Fallback to multi-file selection
         const result = await DocumentPicker.getDocumentAsync({
           type: 'audio/*',
           copyToCacheDirectory: false,
@@ -75,6 +121,11 @@ export class PlaylistService {
     return ['mp3', 'm4a', 'wav', 'ogg', 'aac', 'flac', 'wma'].some(ext =>
       lowerUri.endsWith(`.${ext}`)
     );
+  }
+
+  // Check if filename is an audio file based on extension
+  private static isAudioFile(filename: string): boolean {
+    return this.isAudioFileUri(filename);
   }
 
   // Get MIME type from URI
