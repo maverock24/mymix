@@ -9,9 +9,7 @@ export class PlaylistService {
     try {
       if (Platform.OS === 'android' || Platform.OS === 'ios') {
         // Use the new SDK 54 pickDirectoryAsync for folder selection
-        const directory = await Directory.pickDirectoryAsync({
-          persistPermissions: true, // Request persistent permissions for Android
-        });
+        const directory = await Directory.pickDirectoryAsync();
 
         console.log('[PlaylistService] Selected directory:', directory.uri);
 

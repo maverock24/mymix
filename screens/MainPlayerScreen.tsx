@@ -87,10 +87,17 @@ export const MainPlayerScreen: React.FC = () => {
 
   const handleLoadPlaylist = async (playerNumber: 1 | 2) => {
     try {
+      console.log('[MainPlayerScreen] Loading playlist for player', playerNumber);
+
       // Pick multiple files directly
       const { tracks, selectedIndex } = await PlaylistService.pickAudioFileAndFolder();
 
-      if (tracks.length === 0) return;
+      console.log('[MainPlayerScreen] Picked', tracks.length, 'tracks');
+
+      if (tracks.length === 0) {
+        console.log('[MainPlayerScreen] No tracks selected, user likely cancelled');
+        return;
+      }
 
       // Extract folder name from the first track's URI
       const uri = tracks[0].uri;
