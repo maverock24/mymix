@@ -206,34 +206,46 @@ export const StorageService = {
     playlist2?: Playlist
   ): Promise<Preset> {
     try {
-      const preset: Preset = {
-        id: `preset_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        name,
-        createdAt: Date.now(),
-        lastUsed: Date.now(),
-        dualPlayerState,
-        playlist1,
-        playlist2,
-      };
+      // Check if preset with same name already exists
+      const allPresets = await this.getAllPresets();
+      const existingPreset = allPresets.find(p => p.name === name);
+
+      let preset: Preset;
+
+      if (existingPreset) {
+        // Update existing preset
+        preset = {
+          ...existingPreset,
+          name,
+          lastUsed: Date.now(),
+          dualPlayerState,
+          playlist1,
+          playlist2,
+        };
+      } else {
+        // Create new preset
+        preset = {
+          id: `preset_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          name,
+          createdAt: Date.now(),
+          lastUsed: Date.now(),
+          dualPlayerState,
+          playlist1,
+          playlist2,
+        };
+      }
 
       if (Platform.OS === 'web') {
-        // For web, store in localforage
         const presetsStore = localforage.createInstance({
           name: 'mymix',
           storeName: 'presets',
         });
         await presetsStore.setItem(preset.id, preset);
       } else {
-        const allPresets = await this.getAllPresets();
-        // Check if preset with same name exists, update it
-        const existingIndex = allPresets.findIndex(p => p.name === name);
-        if (existingIndex >= 0) {
-          allPresets[existingIndex] = { ...preset, id: allPresets[existingIndex].id, createdAt: allPresets[existingIndex].createdAt };
-        } else {
-          allPresets.push(preset);
-        }
-        await AsyncStorage.setItem(PRESETS_KEY, JSON.stringify(allPresets));
-        console.log('[Storage] Saved preset:', name);
+        const updatedPresets = allPresets.filter(p => p.id !== preset.id);
+        updatedPresets.push(preset);
+        await AsyncStorage.setItem(PRESETS_KEY, JSON.stringify(updatedPresets));
+        console.log('[Storage] Saved preset:', name, existingPreset ? '(updated)' : '(new)');
       }
 
       return preset;

@@ -64,6 +64,14 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   const isCrossfading = useRef(false);
   const crossfadeIntervalId = useRef<NodeJS.Timeout | null>(null);
 
+  // Refs for smooth slider handling
+  const volumeSliderRef = useRef<any>(null);
+  const speedSliderRef = useRef<any>(null);
+  const volumeStartY = useRef(0);
+  const speedStartY = useRef(0);
+  const volumeStartValue = useRef(0);
+  const speedStartValue = useRef(0);
+
   const currentTrack = playlist?.tracks[currentTrackIndex];
 
   // Initialize audio mode on mount
@@ -579,6 +587,50 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     setShowPlaylist(false); // Collapse playlist after selection
   };
 
+  // Improved volume slider handlers
+  const handleVolumeSliderStart = (e: any) => {
+    volumeStartY.current = e.nativeEvent.pageY;
+    volumeStartValue.current = volume;
+  };
+
+  const handleVolumeSliderMove = (e: any) => {
+    const currentY = e.nativeEvent.pageY;
+    const deltaY = volumeStartY.current - currentY; // Inverted
+    const deltaValue = deltaY / 140; // 140 is slider height
+    let newValue = volumeStartValue.current + deltaValue;
+    newValue = Math.max(0, Math.min(1, newValue));
+
+    // Round to 2 decimal places for smoother control
+    newValue = Math.round(newValue * 100) / 100;
+    handleVolumeChange(newValue);
+  };
+
+  const handleVolumeSliderEnd = () => {
+    handleVolumeComplete(volume);
+  };
+
+  // Improved speed slider handlers
+  const handleSpeedSliderStart = (e: any) => {
+    speedStartY.current = e.nativeEvent.pageY;
+    speedStartValue.current = speed;
+  };
+
+  const handleSpeedSliderMove = (e: any) => {
+    const currentY = e.nativeEvent.pageY;
+    const deltaY = speedStartY.current - currentY; // Inverted
+    const deltaValue = (deltaY / 140) * 1.5; // 1.5 is the range (2.0 - 0.5)
+    let newValue = speedStartValue.current + deltaValue;
+    newValue = Math.max(0.5, Math.min(2, newValue));
+
+    // Round to nearest 0.05 for smoother control
+    newValue = Math.round(newValue * 20) / 20;
+    handleSpeedChange(newValue);
+  };
+
+  const handleSpeedSliderEnd = () => {
+    handleSpeedComplete(speed);
+  };
+
   const trackInfo = currentTrack
     ? PlaylistService.parseTrackName(currentTrack.name)
     : { title: 'No track' };
@@ -768,24 +820,13 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                 <View style={styles.verticalSliderContainer}>
                   <Text style={styles.verticalSliderValue}>{Math.round(volume * 100)}</Text>
                   <View
+                    ref={volumeSliderRef}
                     style={styles.verticalSliderTrack}
                     onStartShouldSetResponder={() => true}
                     onMoveShouldSetResponder={() => true}
-                    onResponderGrant={(e) => {
-                      const { locationY } = e.nativeEvent;
-                      const percentage = 1 - (locationY / 140); // 140 is track height
-                      const newValue = Math.max(0, Math.min(1, percentage));
-                      handleVolumeChange(newValue);
-                    }}
-                    onResponderMove={(e) => {
-                      const { locationY } = e.nativeEvent;
-                      const percentage = 1 - (locationY / 140);
-                      const newValue = Math.max(0, Math.min(1, percentage));
-                      handleVolumeChange(newValue);
-                    }}
-                    onResponderRelease={() => {
-                      handleVolumeComplete(volume);
-                    }}
+                    onResponderGrant={handleVolumeSliderStart}
+                    onResponderMove={handleVolumeSliderMove}
+                    onResponderRelease={handleVolumeSliderEnd}
                   >
                     <View style={styles.verticalSliderBackground} />
                     <View style={[styles.verticalSliderFill, { height: `${volume * 100}%` }]} />
