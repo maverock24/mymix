@@ -8,9 +8,11 @@ import {
   Platform,
   TouchableOpacity,
   Modal,
+  TextInput,
+  FlatList,
 } from 'react-native';
 import { SinglePlayer, SinglePlayerRef } from '../components/SinglePlayer';
-import { StorageService, Playlist, DualPlayerState } from '../services/storage';
+import { StorageService, Playlist, DualPlayerState, Preset } from '../services/storage';
 import { PlaylistService } from '../services/playlistService';
 import { SleepTimer, SleepTimerDuration, SleepTimerState } from '../services/sleepTimer';
 import { colors } from '../theme/colors';
@@ -26,15 +28,25 @@ export const MainPlayerScreen: React.FC = () => {
     totalSeconds: 0,
   });
   const [showSleepTimerModal, setShowSleepTimerModal] = useState(false);
+  const [presetName, setPresetName] = useState('');
+  const [savedPresets, setSavedPresets] = useState<Preset[]>([]);
+  const [showPresetsModal, setShowPresetsModal] = useState(false);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const player1Ref = useRef<SinglePlayerRef>(null);
   const player2Ref = useRef<SinglePlayerRef>(null);
   const sleepTimer = SleepTimer.getInstance();
 
-  // Load saved state on mount
+  // Load saved state and presets on mount
   useEffect(() => {
     loadSavedState();
+    loadPresets();
   }, []);
+
+  const loadPresets = async () => {
+    const presets = await StorageService.getAllPresets();
+    setSavedPresets(presets);
+  };
 
   // Subscribe to sleep timer updates
   useEffect(() => {
@@ -235,6 +247,100 @@ export const MainPlayerScreen: React.FC = () => {
 
   const sleepTimerDurations: SleepTimerDuration[] = [5, 10, 15, 30, 45, 60, 90, 120];
 
+  // Auto-save preset when name changes
+  const handlePresetNameChange = (name: string) => {
+    setPresetName(name);
+
+    // Clear existing timeout
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    // Only save if name is not empty and we have at least one playlist
+    if (name.trim() && (playlist1 || playlist2) && dualState) {
+      // Debounce save by 1 second
+      saveTimeoutRef.current = setTimeout(async () => {
+        try {
+          await StorageService.savePreset(name.trim(), dualState, playlist1 || undefined, playlist2 || undefined);
+          await loadPresets(); // Reload presets list
+          console.log('[MainPlayerScreen] Auto-saved preset:', name);
+        } catch (error) {
+          console.error('[MainPlayerScreen] Error auto-saving preset:', error);
+        }
+      }, 1000);
+    }
+  };
+
+  // Load a preset
+  const handleLoadPreset = async (preset: Preset) => {
+    try {
+      console.log('[MainPlayerScreen] Loading preset:', preset.name);
+
+      // Set preset name
+      setPresetName(preset.name);
+
+      // Load playlists
+      if (preset.playlist1) {
+        setPlaylist1(preset.playlist1);
+      }
+      if (preset.playlist2) {
+        setPlaylist2(preset.playlist2);
+      }
+
+      // Load dual player state
+      setDualState(preset.dualPlayerState);
+
+      // Update last used
+      await StorageService.updatePresetLastUsed(preset.id);
+      await loadPresets();
+
+      setShowPresetsModal(false);
+
+      if (Platform.OS !== 'web') {
+        Alert.alert('Success', `Loaded preset: ${preset.name}`);
+      }
+    } catch (error) {
+      console.error('[MainPlayerScreen] Error loading preset:', error);
+      if (Platform.OS !== 'web') {
+        Alert.alert('Error', 'Failed to load preset');
+      }
+    }
+  };
+
+  // Delete a preset
+  const handleDeletePreset = async (id: string, name: string) => {
+    if (Platform.OS !== 'web') {
+      Alert.alert(
+        'Delete Preset',
+        `Delete "${name}"?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await StorageService.deletePreset(id);
+                await loadPresets();
+              } catch (error) {
+                console.error('[MainPlayerScreen] Error deleting preset:', error);
+              }
+            },
+          },
+        ]
+      );
+    } else {
+      if (confirm(`Delete preset "${name}"?`)) {
+        try {
+          await StorageService.deletePreset(id);
+          await loadPresets();
+        } catch (error) {
+          console.error('[MainPlayerScreen] Error deleting preset:', error);
+        }
+      }
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -243,17 +349,45 @@ export const MainPlayerScreen: React.FC = () => {
             <Text style={styles.title}>MyMix - Dual MP3 Player</Text>
             <Text style={styles.subtitle}>Play two audio tracks simultaneously</Text>
           </View>
-          <TouchableOpacity
-            style={styles.sleepTimerButton}
-            onPress={() => setShowSleepTimerModal(true)}
-          >
-            <Text style={styles.sleepTimerIcon}>😴</Text>
-            {sleepTimerState.isActive && (
-              <Text style={styles.sleepTimerText}>
-                {sleepTimer.formatTime(sleepTimerState.remainingSeconds)}
-              </Text>
-            )}
-          </TouchableOpacity>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity
+              style={styles.presetsButton}
+              onPress={() => setShowPresetsModal(true)}
+            >
+              <Text style={styles.presetsButtonText}>📋</Text>
+              {savedPresets.length > 0 && (
+                <View style={styles.presetsBadge}>
+                  <Text style={styles.presetsBadgeText}>{savedPresets.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.sleepTimerButton}
+              onPress={() => setShowSleepTimerModal(true)}
+            >
+              <Text style={styles.sleepTimerIcon}>😴</Text>
+              {sleepTimerState.isActive && (
+                <Text style={styles.sleepTimerText}>
+                  {sleepTimer.formatTime(sleepTimerState.remainingSeconds)}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Preset Name Input */}
+        <View style={styles.presetNameContainer}>
+          <Text style={styles.presetNameLabel}>Preset:</Text>
+          <TextInput
+            style={styles.presetNameInput}
+            placeholder="Enter name to save..."
+            placeholderTextColor={colors.textMuted}
+            value={presetName}
+            onChangeText={handlePresetNameChange}
+          />
+          {presetName.trim() && (
+            <Text style={styles.autoSaveIndicator}>✓</Text>
+          )}
         </View>
       </View>
 
@@ -325,6 +459,72 @@ export const MainPlayerScreen: React.FC = () => {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Presets Modal */}
+      <Modal
+        visible={showPresetsModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowPresetsModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowPresetsModal(false)}
+        >
+          <View style={styles.presetsModal} onStartShouldSetResponder={() => true}>
+            <Text style={styles.modalTitle}>Saved Presets</Text>
+            <Text style={styles.modalSubtitle}>
+              {savedPresets.length} saved configuration{savedPresets.length !== 1 ? 's' : ''}
+            </Text>
+
+            {savedPresets.length === 0 ? (
+              <View style={styles.emptyPresets}>
+                <Text style={styles.emptyPresetsText}>No saved presets yet</Text>
+                <Text style={styles.emptyPresetsSubtext}>
+                  Enter a name above to save your current setup
+                </Text>
+              </View>
+            ) : (
+              <FlatList
+                data={savedPresets}
+                keyExtractor={(item) => item.id}
+                style={styles.presetsList}
+                renderItem={({ item }) => (
+                  <View style={styles.presetItem}>
+                    <TouchableOpacity
+                      style={styles.presetItemButton}
+                      onPress={() => handleLoadPreset(item)}
+                    >
+                      <View style={styles.presetItemInfo}>
+                        <Text style={styles.presetItemName}>{item.name}</Text>
+                        <Text style={styles.presetItemDetails}>
+                          {item.playlist1 && `P1: ${item.playlist1.name}`}
+                          {item.playlist1 && item.playlist2 && ' • '}
+                          {item.playlist2 && `P2: ${item.playlist2.name}`}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.deletePresetButton}
+                      onPress={() => handleDeletePreset(item.id, item.name)}
+                    >
+                      <Text style={styles.deletePresetText}>🗑️</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              />
+            )}
+
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setShowPresetsModal(false)}
+            >
+              <Text style={styles.closeButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 };
@@ -335,8 +535,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   header: {
-    padding: 20,
-    paddingTop: 40,
+    padding: 16,
+    paddingTop: 36,
     backgroundColor: colors.backgroundSecondary,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
@@ -344,10 +544,15 @@ const styles = StyleSheet.create({
   headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    marginBottom: 12,
   },
   headerText: {
     flex: 1,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 8,
   },
   title: {
     fontSize: 24,
@@ -359,6 +564,35 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textSecondary,
   },
+  presetsButton: {
+    backgroundColor: colors.surface,
+    borderRadius: 8,
+    padding: 8,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  presetsButtonText: {
+    fontSize: 20,
+  },
+  presetsBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  presetsBadgeText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: colors.background,
+  },
   sleepTimerButton: {
     backgroundColor: colors.surface,
     borderRadius: 8,
@@ -366,7 +600,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 12,
   },
   sleepTimerIcon: {
     fontSize: 20,
@@ -457,5 +690,97 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: colors.textPrimary,
+  },
+  presetNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  presetNameLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginRight: 8,
+  },
+  presetNameInput: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.textPrimary,
+    padding: 0,
+  },
+  autoSaveIndicator: {
+    fontSize: 16,
+    color: colors.primary,
+    marginLeft: 8,
+  },
+  presetsModal: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 450,
+    maxHeight: '80%',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  presetsList: {
+    maxHeight: 400,
+    marginBottom: 16,
+  },
+  presetItem: {
+    flexDirection: 'row',
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  presetItemButton: {
+    flex: 1,
+    padding: 12,
+  },
+  presetItemInfo: {
+    flex: 1,
+  },
+  presetItemName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    marginBottom: 4,
+  },
+  presetItemDetails: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  deletePresetButton: {
+    padding: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.backgroundTertiary,
+    borderLeftWidth: 1,
+    borderLeftColor: colors.border,
+  },
+  deletePresetText: {
+    fontSize: 18,
+  },
+  emptyPresets: {
+    paddingVertical: 40,
+    alignItems: 'center',
+  },
+  emptyPresetsText: {
+    fontSize: 16,
+    color: colors.textMuted,
+    marginBottom: 8,
+  },
+  emptyPresetsSubtext: {
+    fontSize: 13,
+    color: colors.textMuted,
+    textAlign: 'center',
   },
 });

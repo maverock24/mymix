@@ -663,140 +663,149 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
           </View>
         ) : (
           <>
-            {/* Track Info */}
-            <View style={styles.trackInfo}>
-              <Text style={styles.trackTitle} numberOfLines={2}>
-                {trackInfo.title}
-              </Text>
-              {trackInfo.artist && (
-                <Text style={styles.trackArtist} numberOfLines={1}>
-                  {trackInfo.artist}
-                </Text>
-              )}
-              <Text style={styles.playlistInfo}>
-                {currentTrackIndex + 1} / {playlist.tracks.length}
-              </Text>
-            </View>
+            {/* Main Content - Side by Side Layout */}
+            <View style={styles.mainContentContainer}>
+              {/* Left Side - Track Info + Controls */}
+              <View style={styles.leftSide}>
+                {/* Track Info */}
+                <View style={styles.trackInfo}>
+                  <Text style={styles.trackTitle} numberOfLines={1}>
+                    {trackInfo.title}
+                  </Text>
+                  {trackInfo.artist && (
+                    <Text style={styles.trackArtist} numberOfLines={1}>
+                      {trackInfo.artist}
+                    </Text>
+                  )}
+                  <Text style={styles.playlistInfo}>
+                    {currentTrackIndex + 1} / {playlist.tracks.length}
+                  </Text>
+                </View>
 
-            {/* Progress Bar */}
-            <View style={styles.progressContainer}>
-              <Text style={styles.timeText}>{PlaylistService.formatTime(position)}</Text>
-              <Slider
-                style={styles.progressSlider}
-                minimumValue={0}
-                maximumValue={duration || 1}
-                value={position}
-                onValueChange={handlePositionChange}
-                onSlidingComplete={handlePositionComplete}
-                minimumTrackTintColor={colors.primary}
-                maximumTrackTintColor={colors.border}
-                thumbTintColor={colors.primary}
-              />
-              <Text style={styles.timeText}>{PlaylistService.formatTime(duration)}</Text>
-            </View>
+                {/* Progress Bar */}
+                <View style={styles.progressContainer}>
+                  <Text style={styles.timeText}>{PlaylistService.formatTime(position)}</Text>
+                  <Slider
+                    style={styles.progressSlider}
+                    minimumValue={0}
+                    maximumValue={duration || 1}
+                    value={position}
+                    onValueChange={handlePositionChange}
+                    onSlidingComplete={handlePositionComplete}
+                    minimumTrackTintColor={colors.primary}
+                    maximumTrackTintColor={colors.border}
+                    thumbTintColor={colors.primary}
+                  />
+                  <Text style={styles.timeText}>{PlaylistService.formatTime(duration)}</Text>
+                </View>
 
-            {/* Playback Controls */}
-            <View style={styles.controls}>
-              <TouchableOpacity
-                onPress={toggleShuffle}
-                style={[styles.modeButton, shuffle && styles.modeButtonActive]}
-              >
-                <Text style={styles.modeIcon}>🔀</Text>
-                <Text style={[styles.modeLabel, !shuffle && styles.modeLabelInactive]}>
-                  {shuffle ? 'ON' : 'OFF'}
-                </Text>
-              </TouchableOpacity>
+                {/* Playback Controls */}
+                <View style={styles.controlsSection}>
+                  {/* Mode Buttons and Playback Controls */}
+                  <View style={styles.controls}>
+                  <TouchableOpacity
+                    onPress={toggleShuffle}
+                    style={[styles.modeButton, shuffle && styles.modeButtonActive]}
+                  >
+                    <Text style={styles.modeIcon}>🔀</Text>
+                    <Text style={[styles.modeLabelSmall, !shuffle && styles.modeLabelInactive]}>
+                      {shuffle ? 'ON' : 'OFF'}
+                    </Text>
+                  </TouchableOpacity>
 
-              <TouchableOpacity onPress={handlePrevious} style={styles.controlButton}>
-                <Text style={styles.controlIcon}>⏮</Text>
-              </TouchableOpacity>
+                  <TouchableOpacity onPress={handlePrevious} style={styles.controlButton}>
+                    <Text style={styles.controlIcon}>⏮</Text>
+                  </TouchableOpacity>
 
-              <TouchableOpacity
-                onPress={togglePlayPause}
-                style={styles.playButton}
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <ActivityIndicator color={colors.background} />
-                ) : (
-                  <Text style={styles.playIcon}>{isPlaying ? '⏸' : '▶'}</Text>
-                )}
-              </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={togglePlayPause}
+                    style={styles.playButton}
+                    disabled={isLoading}
+                  >
+                    {isLoading ? (
+                      <ActivityIndicator color={colors.background} />
+                    ) : (
+                      <Text style={styles.playIcon}>{isPlaying ? '⏸' : '▶'}</Text>
+                    )}
+                  </TouchableOpacity>
 
-              <TouchableOpacity onPress={handleNext} style={styles.controlButton}>
-                <Text style={styles.controlIcon}>⏭</Text>
-              </TouchableOpacity>
+                  <TouchableOpacity onPress={handleNext} style={styles.controlButton}>
+                    <Text style={styles.controlIcon}>⏭</Text>
+                  </TouchableOpacity>
 
-              <TouchableOpacity
-                onPress={cycleRepeat}
-                style={[styles.modeButton, repeat !== 'off' && styles.modeButtonActive]}
-              >
-                <Text style={styles.modeIcon}>
-                  {repeat === 'one' ? '🔂' : '🔁'}
-                </Text>
-                <Text style={[styles.modeLabel, repeat === 'off' && styles.modeLabelInactive]}>
-                  {repeat === 'one' ? '1' : repeat === 'all' ? 'ALL' : 'OFF'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  <TouchableOpacity
+                    onPress={cycleRepeat}
+                    style={[styles.modeButton, repeat !== 'off' && styles.modeButtonActive]}
+                  >
+                    <Text style={styles.modeIcon}>
+                      {repeat === 'one' ? '🔂' : '🔁'}
+                    </Text>
+                    <Text style={[styles.modeLabelSmall, repeat === 'off' && styles.modeLabelInactive]}>
+                      {repeat === 'one' ? '1' : repeat === 'all' ? 'ALL' : 'OFF'}
+                    </Text>
+                  </TouchableOpacity>
+                  </View>
 
-            {/* Volume & Speed */}
-            <View style={styles.sliderRow}>
-              <View style={styles.sliderGroup}>
-                <Text style={styles.sliderLabel}>🔊</Text>
-                <Slider
-                  style={styles.compactSlider}
-                  minimumValue={0}
-                  maximumValue={1}
-                  value={volume}
-                  onValueChange={handleVolumeChange}
-                  onSlidingComplete={handleVolumeComplete}
-                  minimumTrackTintColor={colors.primary}
-                  maximumTrackTintColor={colors.border}
-                  thumbTintColor={colors.primary}
-                />
-                <Text style={styles.sliderValue}>{Math.round(volume * 100)}</Text>
+                  {/* Playback Options */}
+                  <View style={styles.playbackOptions}>
+                    <TouchableOpacity
+                      onPress={() => setGaplessEnabled(!gaplessEnabled)}
+                      style={[styles.optionButtonCompact, gaplessEnabled && styles.optionButtonActive]}
+                    >
+                      <Text style={styles.optionIconSmall}>⚡</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => setCrossfadeEnabled(!crossfadeEnabled)}
+                      style={[styles.optionButtonCompact, crossfadeEnabled && styles.optionButtonActive]}
+                    >
+                      <Text style={styles.optionIconSmall}>🎚️</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
               </View>
 
-              <View style={styles.sliderGroup}>
-                <Text style={styles.sliderLabel}>⚡</Text>
-                <Slider
-                  style={styles.compactSlider}
-                  minimumValue={0.5}
-                  maximumValue={2}
-                  value={speed}
-                  step={0.1}
-                  onValueChange={handleSpeedChange}
-                  onSlidingComplete={handleSpeedComplete}
-                  minimumTrackTintColor={colors.primary}
-                  maximumTrackTintColor={colors.border}
-                  thumbTintColor={colors.primary}
-                />
-                <Text style={styles.sliderValue}>{speed.toFixed(1)}</Text>
+              {/* Right Side - Vertical Sliders */}
+              <View style={styles.slidersGroup}>
+                {/* Volume Slider */}
+                <View style={styles.verticalSliderContainer}>
+                  <Text style={styles.verticalSliderValue}>{Math.round(volume * 100)}</Text>
+                  <View style={styles.verticalSliderWrapper}>
+                    <Slider
+                      style={styles.verticalSlider}
+                      minimumValue={0}
+                      maximumValue={1}
+                      value={volume}
+                      onValueChange={handleVolumeChange}
+                      onSlidingComplete={handleVolumeComplete}
+                      minimumTrackTintColor={colors.primary}
+                      maximumTrackTintColor={colors.border}
+                      thumbTintColor={colors.primary}
+                    />
+                  </View>
+                  <Text style={styles.verticalSliderLabel}>🔊</Text>
+                </View>
+
+                {/* Speed Slider */}
+                <View style={styles.verticalSliderContainer}>
+                  <Text style={styles.verticalSliderValue}>{speed.toFixed(1)}×</Text>
+                  <View style={styles.verticalSliderWrapper}>
+                    <Slider
+                      style={styles.verticalSlider}
+                      minimumValue={0.5}
+                      maximumValue={2}
+                      value={speed}
+                      step={0.1}
+                      onValueChange={handleSpeedChange}
+                      onSlidingComplete={handleSpeedComplete}
+                      minimumTrackTintColor={colors.primary}
+                      maximumTrackTintColor={colors.border}
+                      thumbTintColor={colors.primary}
+                    />
+                  </View>
+                  <Text style={styles.verticalSliderLabel}>⚡</Text>
+                </View>
               </View>
-            </View>
-
-            {/* Playback Options */}
-            <View style={styles.playbackOptions}>
-              <TouchableOpacity
-                onPress={() => setGaplessEnabled(!gaplessEnabled)}
-                style={[styles.optionButton, gaplessEnabled && styles.optionButtonActive]}
-              >
-                <Text style={styles.optionIcon}>⚡</Text>
-                <Text style={[styles.optionText, !gaplessEnabled && styles.optionTextInactive]}>
-                  Gapless
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => setCrossfadeEnabled(!crossfadeEnabled)}
-                style={[styles.optionButton, crossfadeEnabled && styles.optionButtonActive]}
-              >
-                <Text style={styles.optionIcon}>🎚️</Text>
-                <Text style={[styles.optionText, !crossfadeEnabled && styles.optionTextInactive]}>
-                  Crossfade
-                </Text>
-              </TouchableOpacity>
             </View>
           </>
         )}
@@ -984,7 +993,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   playerArea: {
-    padding: 12,
+    padding: 10,
   },
   emptyState: {
     alignItems: 'center',
@@ -1037,22 +1046,65 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     width: 38,
   },
+  mainContentContainer: {
+    flexDirection: 'row',
+    flex: 1,
+    gap: 12,
+  },
+  leftSide: {
+    flex: 1,
+  },
+  controlsSection: {
+    alignItems: 'center',
+  },
+  slidersGroup: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 12,
+    paddingVertical: 8,
+  },
+  verticalSliderContainer: {
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: 42,
+  },
+  verticalSliderWrapper: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 150,
+    transform: [{ rotate: '-90deg' }],
+  },
+  verticalSlider: {
+    width: 150,
+    height: 40,
+  },
+  verticalSliderValue: {
+    fontSize: 10,
+    color: colors.textSecondary,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  verticalSliderLabel: {
+    fontSize: 16,
+    marginTop: 4,
+  },
   controls: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
-    gap: 8,
+    marginBottom: 8,
+    gap: 6,
   },
   modeButton: {
     backgroundColor: colors.backgroundSecondary,
-    borderRadius: 8,
-    borderWidth: 2,
+    borderRadius: 6,
+    borderWidth: 1.5,
     borderColor: colors.border,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    width: 50,
-    height: 54,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    width: 42,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1061,99 +1113,63 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   modeIcon: {
-    fontSize: 18,
-    marginBottom: 2,
+    fontSize: 16,
+    marginBottom: 1,
   },
-  modeLabel: {
-    fontSize: 8,
+  modeLabelSmall: {
+    fontSize: 7,
     fontWeight: 'bold',
     color: colors.primary,
     textAlign: 'center',
-    marginTop: 2,
+    marginTop: 1,
   },
   modeLabelInactive: {
     color: colors.textMuted,
     opacity: 0.6,
   },
   controlButton: {
-    padding: 8,
-    marginHorizontal: 4,
+    padding: 6,
+    marginHorizontal: 2,
   },
   controlIcon: {
-    fontSize: 24,
+    fontSize: 22,
     color: colors.textPrimary,
   },
   playButton: {
     backgroundColor: colors.primary,
-    borderRadius: 30,
-    width: 60,
-    height: 60,
+    borderRadius: 28,
+    width: 56,
+    height: 56,
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: 8,
+    marginHorizontal: 6,
   },
   playIcon: {
-    fontSize: 28,
+    fontSize: 26,
     color: colors.background,
-  },
-  sliderRow: {
-    marginTop: 8,
-  },
-  sliderGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  sliderLabel: {
-    fontSize: 16,
-    width: 24,
-  },
-  compactSlider: {
-    flex: 1,
-    marginHorizontal: 8,
-    height: 30,
-  },
-  sliderValue: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    width: 32,
-    textAlign: 'right',
   },
   playbackOptions: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 12,
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: colors.border + '30',
+    gap: 8,
   },
-  optionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  optionButtonCompact: {
     backgroundColor: colors.backgroundSecondary,
-    borderRadius: 6,
+    borderRadius: 5,
     borderWidth: 1.5,
     borderColor: colors.border,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    gap: 6,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   optionButtonActive: {
     backgroundColor: colors.primary + '20',
     borderColor: colors.primary,
   },
-  optionIcon: {
+  optionIconSmall: {
     fontSize: 14,
-  },
-  optionText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.primary,
-  },
-  optionTextInactive: {
-    color: colors.textMuted,
   },
   modalOverlay: {
     flex: 1,

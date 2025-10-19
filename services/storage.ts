@@ -42,6 +42,16 @@ export interface DualPlayerState {
   player2: PlayerState;
 }
 
+export interface Preset {
+  id: string;
+  name: string;
+  createdAt: number;
+  lastUsed?: number;
+  dualPlayerState: DualPlayerState;
+  playlist1?: Playlist;
+  playlist2?: Playlist;
+}
+
 // Initialize localforage (for web only)
 const playlistStore = localforage.createInstance({
   name: 'mymix',
@@ -55,6 +65,7 @@ const playerStateStore = localforage.createInstance({
 
 const PLAYLISTS_KEY = '@mymix_playlists';
 const PLAYER_STATE_KEY = '@mymix_player_state';
+const PRESETS_KEY = '@mymix_presets';
 
 export const StorageService = {
   // Playlist Management
@@ -184,6 +195,138 @@ export const StorageService = {
     } else {
       await AsyncStorage.removeItem(PLAYLISTS_KEY);
       await AsyncStorage.removeItem(PLAYER_STATE_KEY);
+    }
+  },
+
+  // Preset Management
+  async savePreset(
+    name: string,
+    dualPlayerState: DualPlayerState,
+    playlist1?: Playlist,
+    playlist2?: Playlist
+  ): Promise<Preset> {
+    try {
+      const preset: Preset = {
+        id: `preset_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        name,
+        createdAt: Date.now(),
+        lastUsed: Date.now(),
+        dualPlayerState,
+        playlist1,
+        playlist2,
+      };
+
+      if (Platform.OS === 'web') {
+        // For web, store in localforage
+        const presetsStore = localforage.createInstance({
+          name: 'mymix',
+          storeName: 'presets',
+        });
+        await presetsStore.setItem(preset.id, preset);
+      } else {
+        const allPresets = await this.getAllPresets();
+        // Check if preset with same name exists, update it
+        const existingIndex = allPresets.findIndex(p => p.name === name);
+        if (existingIndex >= 0) {
+          allPresets[existingIndex] = { ...preset, id: allPresets[existingIndex].id, createdAt: allPresets[existingIndex].createdAt };
+        } else {
+          allPresets.push(preset);
+        }
+        await AsyncStorage.setItem(PRESETS_KEY, JSON.stringify(allPresets));
+        console.log('[Storage] Saved preset:', name);
+      }
+
+      return preset;
+    } catch (error) {
+      console.error('[Storage] Error saving preset:', error);
+      throw error;
+    }
+  },
+
+  async getAllPresets(): Promise<Preset[]> {
+    try {
+      if (Platform.OS === 'web') {
+        const presetsStore = localforage.createInstance({
+          name: 'mymix',
+          storeName: 'presets',
+        });
+        const presets: Preset[] = [];
+        await presetsStore.iterate((value: Preset) => {
+          presets.push(value);
+        });
+        return presets.sort((a, b) => (b.lastUsed || b.createdAt) - (a.lastUsed || a.createdAt));
+      } else {
+        const data = await AsyncStorage.getItem(PRESETS_KEY);
+        if (!data) return [];
+        const presets: Preset[] = JSON.parse(data);
+        return presets.sort((a, b) => (b.lastUsed || b.createdAt) - (a.lastUsed || a.createdAt));
+      }
+    } catch (error) {
+      console.error('[Storage] Error getting presets:', error);
+      return [];
+    }
+  },
+
+  async getPreset(id: string): Promise<Preset | null> {
+    try {
+      if (Platform.OS === 'web') {
+        const presetsStore = localforage.createInstance({
+          name: 'mymix',
+          storeName: 'presets',
+        });
+        return await presetsStore.getItem<Preset>(id);
+      } else {
+        const allPresets = await this.getAllPresets();
+        return allPresets.find(p => p.id === id) || null;
+      }
+    } catch (error) {
+      console.error('[Storage] Error getting preset:', error);
+      return null;
+    }
+  },
+
+  async deletePreset(id: string): Promise<void> {
+    try {
+      if (Platform.OS === 'web') {
+        const presetsStore = localforage.createInstance({
+          name: 'mymix',
+          storeName: 'presets',
+        });
+        await presetsStore.removeItem(id);
+      } else {
+        const allPresets = await this.getAllPresets();
+        const filtered = allPresets.filter(p => p.id !== id);
+        await AsyncStorage.setItem(PRESETS_KEY, JSON.stringify(filtered));
+        console.log('[Storage] Deleted preset:', id);
+      }
+    } catch (error) {
+      console.error('[Storage] Error deleting preset:', error);
+      throw error;
+    }
+  },
+
+  async updatePresetLastUsed(id: string): Promise<void> {
+    try {
+      if (Platform.OS === 'web') {
+        const presetsStore = localforage.createInstance({
+          name: 'mymix',
+          storeName: 'presets',
+        });
+        const preset = await presetsStore.getItem<Preset>(id);
+        if (preset) {
+          preset.lastUsed = Date.now();
+          await presetsStore.setItem(id, preset);
+        }
+      } else {
+        const allPresets = await this.getAllPresets();
+        const preset = allPresets.find(p => p.id === id);
+        if (preset) {
+          preset.lastUsed = Date.now();
+          await AsyncStorage.setItem(PRESETS_KEY, JSON.stringify(allPresets));
+        }
+      }
+    } catch (error) {
+      console.error('[Storage] Error updating preset last used:', error);
     }
   },
 };
