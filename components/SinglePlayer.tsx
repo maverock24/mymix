@@ -134,17 +134,10 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   }, [currentTrackIndex, playlist]);
 
   // Media control event handlers - using refs to avoid stale closures
-  const togglePlayPauseRef = useRef(togglePlayPause);
-  const handleNextRef = useRef(handleNext);
-  const handlePreviousRef = useRef(handlePrevious);
+  const togglePlayPauseRef = useRef<(() => Promise<void>) | null>(null);
+  const handleNextRef = useRef<(() => void) | null>(null);
+  const handlePreviousRef = useRef<(() => void) | null>(null);
   const soundRef = useRef(sound);
-
-  useEffect(() => {
-    togglePlayPauseRef.current = togglePlayPause;
-    handleNextRef.current = handleNext;
-    handlePreviousRef.current = handlePrevious;
-    soundRef.current = sound;
-  });
 
   // Initialize media controls (only for the active media control player)
   useEffect(() => {
@@ -169,13 +162,15 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
         });
 
         // Subscribe to media control events
-        const removeListener = MediaControl.addListener((event) => {
+        const removeListener = MediaControl.addListener((event: any) => {
           console.log('[MediaControl] Received command:', event.command);
 
           switch (event.command) {
             case Command.PLAY:
             case Command.PAUSE:
-              togglePlayPauseRef.current();
+              if (togglePlayPauseRef.current) {
+                togglePlayPauseRef.current();
+              }
               break;
             case Command.STOP:
               if (soundRef.current) {
@@ -183,10 +178,14 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
               }
               break;
             case Command.NEXT_TRACK:
-              handleNextRef.current();
+              if (handleNextRef.current) {
+                handleNextRef.current();
+              }
               break;
             case Command.PREVIOUS_TRACK:
-              handlePreviousRef.current();
+              if (handlePreviousRef.current) {
+                handlePreviousRef.current();
+              }
               break;
           }
         });
@@ -464,6 +463,12 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     }
   };
 
+  // Update refs when functions change
+  useEffect(() => {
+    togglePlayPauseRef.current = togglePlayPause;
+    soundRef.current = sound;
+  });
+
   const handleNext = () => {
     if (!playlist) return;
 
@@ -512,6 +517,12 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       setPosition(0);
     }
   };
+
+  // Update handleNext and handlePrevious refs
+  useEffect(() => {
+    handleNextRef.current = handleNext;
+    handlePreviousRef.current = handlePrevious;
+  });
 
   const toggleShuffle = () => {
     const newShuffle = !shuffle;
