@@ -576,6 +576,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   const selectTrack = (index: number) => {
     setCurrentTrackIndex(index);
     setPosition(0);
+    setShowPlaylist(false); // Collapse playlist after selection
   };
 
   const trackInfo = currentTrack
