@@ -9,7 +9,11 @@ export class PlaylistService {
     try {
       if (Platform.OS === 'android' || Platform.OS === 'ios') {
         // Use the new SDK 54 pickDirectoryAsync for folder selection
-        const directory = await Directory.pickDirectoryAsync();
+        const directory = await Directory.pickDirectoryAsync({
+          persistPermissions: true, // Request persistent permissions for Android
+        });
+
+        console.log('[PlaylistService] Selected directory:', directory.uri);
 
         // List all files in the directory
         const contents = directory.list();
@@ -21,6 +25,8 @@ export class PlaylistService {
           }
           return false;
         }) as File[];
+
+        console.log('[PlaylistService] Found', audioFiles.length, 'audio files');
 
         // Create tracks from audio files
         const tracks: Track[] = audioFiles.map((file, index) => ({

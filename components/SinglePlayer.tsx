@@ -133,12 +133,27 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     };
   }, [currentTrackIndex, playlist]);
 
+  // Media control event handlers - using refs to avoid stale closures
+  const togglePlayPauseRef = useRef(togglePlayPause);
+  const handleNextRef = useRef(handleNext);
+  const handlePreviousRef = useRef(handlePrevious);
+  const soundRef = useRef(sound);
+
+  useEffect(() => {
+    togglePlayPauseRef.current = togglePlayPause;
+    handleNextRef.current = handleNext;
+    handlePreviousRef.current = handlePrevious;
+    soundRef.current = sound;
+  });
+
   // Initialize media controls (only for the active media control player)
   useEffect(() => {
     if (Platform.OS === 'web' || !isActiveMediaControl) return;
 
     const initializeMediaControls = async () => {
       try {
+        console.log('[MediaControl] Initializing for player', playerNumber);
+
         await MediaControl.enableMediaControls({
           capabilities: [
             Command.PLAY,
@@ -148,36 +163,39 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
             Command.PREVIOUS_TRACK,
           ],
           notification: {
-            icon: 'ic_music_note',
+            icon: 'ic_notification',
             color: '#3ECF8E',
           },
         });
 
         // Subscribe to media control events
         const removeListener = MediaControl.addListener((event) => {
+          console.log('[MediaControl] Received command:', event.command);
+
           switch (event.command) {
             case Command.PLAY:
             case Command.PAUSE:
-              togglePlayPause();
+              togglePlayPauseRef.current();
               break;
             case Command.STOP:
-              if (sound) {
-                sound.stopAsync().then(() => setIsPlaying(false));
+              if (soundRef.current) {
+                soundRef.current.stopAsync().then(() => setIsPlaying(false));
               }
               break;
             case Command.NEXT_TRACK:
-              handleNext();
+              handleNextRef.current();
               break;
             case Command.PREVIOUS_TRACK:
-              handlePrevious();
+              handlePreviousRef.current();
               break;
           }
         });
 
+        console.log('[MediaControl] Listener attached');
         // Return cleanup function
         return removeListener;
       } catch (error) {
-        console.error('Error initializing media controls:', error);
+        console.error('[MediaControl] Error initializing:', error);
         return () => {};
       }
     };
@@ -195,7 +213,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
         MediaControl.removeAllListeners();
       }
     };
-  }, [isActiveMediaControl]);
+  }, [isActiveMediaControl, playerNumber]);
 
   // Update media control metadata when track changes
   useEffect(() => {
@@ -204,14 +222,17 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     const updateMediaMetadata = async () => {
       try {
         const trackInfo = PlaylistService.parseTrackName(currentTrack.name);
-        await MediaControl.updateMetadata({
+        const metadata = {
           title: trackInfo.title,
           artist: trackInfo.artist || 'Unknown Artist',
           album: `${playlist?.name || 'MyMix'} - Player ${playerNumber}`,
           duration: duration / 1000, // Convert to seconds
-        });
+        };
+
+        console.log('[MediaControl] Updating metadata:', metadata);
+        await MediaControl.updateMetadata(metadata);
       } catch (error) {
-        console.error('Error updating media metadata:', error);
+        console.error('[MediaControl] Error updating metadata:', error);
       }
     };
 
@@ -225,9 +246,10 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     const updatePlaybackState = async () => {
       try {
         const state = isPlaying ? PlaybackState.PLAYING : PlaybackState.PAUSED;
+        console.log('[MediaControl] Updating playback state:', isPlaying ? 'PLAYING' : 'PAUSED');
         await MediaControl.updatePlaybackState(state);
       } catch (error) {
-        console.error('Error updating playback state:', error);
+        console.error('[MediaControl] Error updating playback state:', error);
       }
     };
 
@@ -910,7 +932,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   playlistList: {
-    maxHeight: 150,
+    maxHeight: 200,
   },
   playlistContent: {
     paddingBottom: 4,
