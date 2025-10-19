@@ -22,8 +22,10 @@
     },
     "production": {
       "android": {
-        "buildType": "app-bundle"
-      }
+        "buildType": "apk"
+      },
+      "channel": "production",
+      "autoIncrement": true
     }
   },
   "submit": {
