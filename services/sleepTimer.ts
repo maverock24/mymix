@@ -9,7 +9,7 @@ export interface SleepTimerState {
 export class SleepTimer {
   private static instance: SleepTimer;
   private timerId: NodeJS.Timeout | null = null;
-  private remainingSeconds: number = 0;
+  private endTime: number = 0; // Timestamp when timer should complete
   private totalSeconds: number = 0;
   private isActive: boolean = false;
   private callbacks: Set<(state: SleepTimerState) => void> = new Set();
@@ -28,16 +28,16 @@ export class SleepTimer {
     this.stop(); // Clear any existing timer
 
     this.totalSeconds = minutes * 60;
-    this.remainingSeconds = this.totalSeconds;
+    this.endTime = Date.now() + (minutes * 60 * 1000); // Calculate end timestamp
     this.isActive = true;
     this.onComplete = onComplete;
 
     this.notifyListeners();
 
     this.timerId = setInterval(() => {
-      this.remainingSeconds--;
+      const remainingMs = this.endTime - Date.now();
 
-      if (this.remainingSeconds <= 0) {
+      if (remainingMs <= 0) {
         this.complete();
       } else {
         this.notifyListeners();
@@ -51,7 +51,7 @@ export class SleepTimer {
       this.timerId = null;
     }
     this.isActive = false;
-    this.remainingSeconds = 0;
+    this.endTime = 0;
     this.totalSeconds = 0;
     this.notifyListeners();
   }
@@ -62,7 +62,7 @@ export class SleepTimer {
       this.timerId = null;
     }
     this.isActive = false;
-    this.remainingSeconds = 0;
+    this.endTime = 0;
 
     if (this.onComplete) {
       this.onComplete();
@@ -88,9 +88,15 @@ export class SleepTimer {
   }
 
   getState(): SleepTimerState {
+    let remainingSeconds = 0;
+    if (this.isActive && this.endTime > 0) {
+      const remainingMs = Math.max(0, this.endTime - Date.now());
+      remainingSeconds = Math.ceil(remainingMs / 1000);
+    }
+
     return {
       isActive: this.isActive,
-      remainingSeconds: this.remainingSeconds,
+      remainingSeconds: remainingSeconds,
       totalSeconds: this.totalSeconds,
     };
   }

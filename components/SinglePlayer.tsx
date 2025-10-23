@@ -64,13 +64,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   const isCrossfading = useRef(false);
   const crossfadeIntervalId = useRef<NodeJS.Timeout | null>(null);
 
-  // Refs for smooth slider handling
-  const volumeSliderRef = useRef<any>(null);
-  const speedSliderRef = useRef<any>(null);
-  const volumeStartY = useRef(0);
-  const speedStartY = useRef(0);
-  const volumeStartValue = useRef(0);
-  const speedStartValue = useRef(0);
 
   const currentTrack = playlist?.tracks[currentTrackIndex];
 
@@ -584,51 +577,22 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   const selectTrack = (index: number) => {
     setCurrentTrackIndex(index);
     setPosition(0);
-    setShowPlaylist(false); // Collapse playlist after selection
+    setShowPlaylist(false); // Close playlist modal after selection
   };
 
-  // Improved volume slider handlers
-  const handleVolumeSliderStart = (e: any) => {
-    volumeStartY.current = e.nativeEvent.pageY;
-    volumeStartValue.current = volume;
-  };
-
-  const handleVolumeSliderMove = (e: any) => {
-    const currentY = e.nativeEvent.pageY;
-    const deltaY = volumeStartY.current - currentY; // Inverted
-    const deltaValue = deltaY / 140; // 140 is slider height
-    let newValue = volumeStartValue.current + deltaValue;
-    newValue = Math.max(0, Math.min(1, newValue));
-
-    // Round to 2 decimal places for smoother control
-    newValue = Math.round(newValue * 100) / 100;
+  // Simple vertical slider handlers (direct position-based)
+  const handleVolumeSliderTouch = (e: any) => {
+    const { locationY } = e.nativeEvent;
+    const percentage = 1 - (locationY / 140); // Inverted: top = 100%, bottom = 0%
+    const newValue = Math.max(0, Math.min(1, percentage));
     handleVolumeChange(newValue);
   };
 
-  const handleVolumeSliderEnd = () => {
-    handleVolumeComplete(volume);
-  };
-
-  // Improved speed slider handlers
-  const handleSpeedSliderStart = (e: any) => {
-    speedStartY.current = e.nativeEvent.pageY;
-    speedStartValue.current = speed;
-  };
-
-  const handleSpeedSliderMove = (e: any) => {
-    const currentY = e.nativeEvent.pageY;
-    const deltaY = speedStartY.current - currentY; // Inverted
-    const deltaValue = (deltaY / 140) * 1.5; // 1.5 is the range (2.0 - 0.5)
-    let newValue = speedStartValue.current + deltaValue;
-    newValue = Math.max(0.5, Math.min(2, newValue));
-
-    // Round to nearest 0.05 for smoother control
-    newValue = Math.round(newValue * 20) / 20;
+  const handleSpeedSliderTouch = (e: any) => {
+    const { locationY } = e.nativeEvent;
+    const percentage = 1 - (locationY / 140); // Inverted: top = 100%, bottom = 0%
+    const newValue = Math.max(0.5, Math.min(2, 0.5 + percentage * 1.5));
     handleSpeedChange(newValue);
-  };
-
-  const handleSpeedSliderEnd = () => {
-    handleSpeedComplete(speed);
   };
 
   const trackInfo = currentTrack
@@ -659,7 +623,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.playerLabel}>Player {playerNumber}</Text>
+        <Text style={styles.playerLabel}>{playerNumber === 1 ? 'Main' : 'Background'}</Text>
         <View style={styles.headerButtons}>
           <TouchableOpacity onPress={() => setShowSettings(true)} style={styles.settingsButton}>
             <Text style={styles.settingsButtonText}>⚙️</Text>
@@ -670,33 +634,16 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
         </View>
       </View>
 
-      {/* Playlist - Top Section */}
+      {/* Playlist - Track Count Button */}
       {playlist && playlist.tracks.length > 0 && (
-        <View style={styles.playlistSection}>
-          <TouchableOpacity
-            onPress={() => setShowPlaylist(!showPlaylist)}
-            style={styles.playlistToggle}
-          >
-            <Text style={styles.playlistToggleText}>
-              {showPlaylist ? '▼' : '▶'} {playlist.tracks.length} tracks
-            </Text>
-          </TouchableOpacity>
-
-          {showPlaylist && (
-            <FlatList
-              data={playlist.tracks}
-              renderItem={renderPlaylistItem}
-              keyExtractor={(item) => item.id}
-              showsVerticalScrollIndicator={true}
-              style={styles.playlistList}
-              contentContainerStyle={styles.playlistContent}
-              nestedScrollEnabled={true}
-              scrollEnabled={true}
-              removeClippedSubviews={false}
-              initialNumToRender={20}
-            />
-          )}
-        </View>
+        <TouchableOpacity
+          onPress={() => setShowPlaylist(true)}
+          style={styles.playlistToggle}
+        >
+          <Text style={styles.playlistToggleText}>
+            📋 {playlist.tracks.length} tracks
+          </Text>
+        </TouchableOpacity>
       )}
 
       {/* Player Controls */}
@@ -756,7 +703,9 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                     onPress={toggleShuffle}
                     style={[styles.modeButton, shuffle && styles.modeButtonActive]}
                   >
-                    <Text style={styles.modeIcon}>🔀</Text>
+                    <Text style={[styles.modeLabelSmall, !shuffle && styles.modeLabelInactive]}>
+                      SHUFFLE
+                    </Text>
                     <Text style={[styles.modeLabelSmall, !shuffle && styles.modeLabelInactive]}>
                       {shuffle ? 'ON' : 'OFF'}
                     </Text>
@@ -786,8 +735,8 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                     onPress={cycleRepeat}
                     style={[styles.modeButton, repeat !== 'off' && styles.modeButtonActive]}
                   >
-                    <Text style={styles.modeIcon}>
-                      {repeat === 'one' ? '🔂' : '🔁'}
+                    <Text style={[styles.modeLabelSmall, repeat === 'off' && styles.modeLabelInactive]}>
+                      REPEAT
                     </Text>
                     <Text style={[styles.modeLabelSmall, repeat === 'off' && styles.modeLabelInactive]}>
                       {repeat === 'one' ? '1' : repeat === 'all' ? 'ALL' : 'OFF'}
@@ -820,13 +769,12 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                 <View style={styles.verticalSliderContainer}>
                   <Text style={styles.verticalSliderValue}>{Math.round(volume * 100)}</Text>
                   <View
-                    ref={volumeSliderRef}
                     style={styles.verticalSliderTrack}
                     onStartShouldSetResponder={() => true}
                     onMoveShouldSetResponder={() => true}
-                    onResponderGrant={handleVolumeSliderStart}
-                    onResponderMove={handleVolumeSliderMove}
-                    onResponderRelease={handleVolumeSliderEnd}
+                    onResponderGrant={handleVolumeSliderTouch}
+                    onResponderMove={handleVolumeSliderTouch}
+                    onResponderRelease={() => handleVolumeComplete(volume)}
                   >
                     <View style={styles.verticalSliderBackground} />
                     <View style={[styles.verticalSliderFill, { height: `${volume * 100}%` }]} />
@@ -842,21 +790,9 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                     style={styles.verticalSliderTrack}
                     onStartShouldSetResponder={() => true}
                     onMoveShouldSetResponder={() => true}
-                    onResponderGrant={(e) => {
-                      const { locationY } = e.nativeEvent;
-                      const percentage = 1 - (locationY / 140);
-                      const newValue = Math.max(0.5, Math.min(2, 0.5 + percentage * 1.5));
-                      handleSpeedChange(newValue);
-                    }}
-                    onResponderMove={(e) => {
-                      const { locationY } = e.nativeEvent;
-                      const percentage = 1 - (locationY / 140);
-                      const newValue = Math.max(0.5, Math.min(2, 0.5 + percentage * 1.5));
-                      handleSpeedChange(newValue);
-                    }}
-                    onResponderRelease={() => {
-                      handleSpeedComplete(speed);
-                    }}
+                    onResponderGrant={handleSpeedSliderTouch}
+                    onResponderMove={handleSpeedSliderTouch}
+                    onResponderRelease={() => handleSpeedComplete(speed)}
                   >
                     <View style={styles.verticalSliderBackground} />
                     <View style={[styles.verticalSliderFill, { height: `${((speed - 0.5) / 1.5) * 100}%` }]} />
@@ -947,6 +883,44 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
               onPress={() => setShowSettings(false)}
             >
               <Text style={styles.closeSettingsButtonText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Playlist Modal */}
+      <Modal
+        visible={showPlaylist}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowPlaylist(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowPlaylist(false)}
+        >
+          <View style={styles.playlistModal} onStartShouldSetResponder={() => true}>
+            <Text style={styles.playlistModalTitle}>
+              {playerNumber === 1 ? 'Main' : 'Background'} Playlist
+            </Text>
+            <Text style={styles.playlistModalSubtitle}>
+              {playlist?.tracks.length} tracks
+            </Text>
+
+            <FlatList
+              data={playlist?.tracks || []}
+              renderItem={renderPlaylistItem}
+              keyExtractor={(item) => item.id}
+              showsVerticalScrollIndicator={true}
+              style={styles.playlistModalList}
+            />
+
+            <TouchableOpacity
+              style={styles.closePlaylistButton}
+              onPress={() => setShowPlaylist(false)}
+            >
+              <Text style={styles.closePlaylistButtonText}>Close</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -1334,6 +1308,40 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   closeSettingsButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.background,
+  },
+  playlistModal: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 20,
+    width: '90%',
+    maxHeight: '80%',
+    alignSelf: 'center',
+  },
+  playlistModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.textPrimary,
+    marginBottom: 4,
+  },
+  playlistModalSubtitle: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: 16,
+  },
+  playlistModalList: {
+    flexGrow: 0,
+  },
+  closePlaylistButton: {
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  closePlaylistButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: colors.background,

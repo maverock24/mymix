@@ -10,6 +10,9 @@ import {
   Modal,
   TextInput,
   FlatList,
+  AppState,
+  AppStateStatus,
+  ActivityIndicator,
 } from 'react-native';
 import { SinglePlayer, SinglePlayerRef } from '../components/SinglePlayer';
 import { StorageService, Playlist, DualPlayerState, Preset } from '../services/storage';
@@ -31,6 +34,8 @@ export const MainPlayerScreen: React.FC = () => {
   const [presetName, setPresetName] = useState('');
   const [savedPresets, setSavedPresets] = useState<Preset[]>([]);
   const [showPresetsModal, setShowPresetsModal] = useState(false);
+  const [isLoadingPreset, setIsLoadingPreset] = useState(false);
+  const [isLoadingInitialState, setIsLoadingInitialState] = useState(true);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const player1Ref = useRef<SinglePlayerRef>(null);
@@ -52,10 +57,35 @@ export const MainPlayerScreen: React.FC = () => {
   useEffect(() => {
     const unsubscribe = sleepTimer.addListener((state) => {
       setSleepTimerState(state);
+
+      // Check if timer completed while we weren't listening
+      if (state.isActive && state.remainingSeconds <= 0) {
+        handleSleepTimerComplete();
+      }
     });
 
     return () => {
       unsubscribe();
+    };
+  }, []);
+
+  // Handle app state changes to check timer when app comes to foreground
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active') {
+        // Check timer state when app becomes active
+        const currentState = sleepTimer.getState();
+        setSleepTimerState(currentState);
+
+        // If timer should have completed, trigger completion
+        if (currentState.isActive && currentState.remainingSeconds <= 0) {
+          handleSleepTimerComplete();
+        }
+      }
+    });
+
+    return () => {
+      subscription.remove();
     };
   }, []);
 
@@ -78,6 +108,7 @@ export const MainPlayerScreen: React.FC = () => {
 
   const loadSavedState = async () => {
     try {
+      setIsLoadingInitialState(true);
       const saved = await StorageService.getDualPlayerState();
       if (saved) {
         setDualState(saved);
@@ -94,6 +125,8 @@ export const MainPlayerScreen: React.FC = () => {
       }
     } catch (error) {
       console.error('Error loading saved state:', error);
+    } finally {
+      setIsLoadingInitialState(false);
     }
   };
 
@@ -137,6 +170,9 @@ export const MainPlayerScreen: React.FC = () => {
               isPlaying: false,
               shuffle: false,
               repeat: 'off' as const,
+              crossfadeEnabled: false,
+              crossfadeDuration: 3000,
+              gaplessEnabled: true,
             }),
             playlistId: playlist.id,
             currentTrackIndex: selectedIndex,
@@ -157,6 +193,9 @@ export const MainPlayerScreen: React.FC = () => {
               isPlaying: false,
               shuffle: false,
               repeat: 'off' as const,
+              crossfadeEnabled: false,
+              crossfadeDuration: 3000,
+              gaplessEnabled: true,
             }),
             playlistId: playlist.id,
             currentTrackIndex: selectedIndex,
@@ -184,17 +223,30 @@ export const MainPlayerScreen: React.FC = () => {
           isPlaying: false,
           shuffle: false,
           repeat: 'off' as const,
+          crossfadeEnabled: false,
+          crossfadeDuration: 3000,
+          gaplessEnabled: true,
         },
       };
       setDualState(newDualState);
       StorageService.saveDualPlayerState(newDualState);
 
-      // If player 1 starts playing, make it the active media control player
-      if (state.isPlaying && activeMediaControlPlayer !== 1) {
+      // Main player is always the active media control player
+      if (activeMediaControlPlayer !== 1) {
         setActiveMediaControlPlayer(1);
       }
+
+      // Auto-start Background when Main starts playing
+      if (state.isPlaying && !dualState?.player2.isPlaying && playlist2) {
+        player2Ref.current?.play();
+      }
+
+      // Auto-pause Background when Main pauses
+      if (!state.isPlaying && dualState?.player2.isPlaying) {
+        player2Ref.current?.pause();
+      }
     },
-    [dualState, activeMediaControlPlayer]
+    [dualState, activeMediaControlPlayer, playlist2]
   );
 
   const handlePlayer2StateChange = useCallback(
@@ -209,16 +261,14 @@ export const MainPlayerScreen: React.FC = () => {
           isPlaying: false,
           shuffle: false,
           repeat: 'off' as const,
+          crossfadeEnabled: false,
+          crossfadeDuration: 3000,
+          gaplessEnabled: true,
         },
         player2: state,
       };
       setDualState(newDualState);
       StorageService.saveDualPlayerState(newDualState);
-
-      // If player 2 starts playing, make it the active media control player
-      if (state.isPlaying && activeMediaControlPlayer !== 2) {
-        setActiveMediaControlPlayer(2);
-      }
     },
     [dualState, activeMediaControlPlayer]
   );
@@ -267,6 +317,7 @@ export const MainPlayerScreen: React.FC = () => {
   // Load a preset
   const handleLoadPreset = async (preset: Preset) => {
     try {
+      setIsLoadingPreset(true);
       console.log('[MainPlayerScreen] Loading preset:', preset.name);
 
       // Set preset name
@@ -293,6 +344,8 @@ export const MainPlayerScreen: React.FC = () => {
       if (Platform.OS !== 'web') {
         Alert.alert('Error', 'Failed to load preset');
       }
+    } finally {
+      setIsLoadingPreset(false);
     }
   };
 
@@ -374,33 +427,38 @@ export const MainPlayerScreen: React.FC = () => {
             value={presetName}
             onChangeText={handlePresetNameChange}
           />
-          {presetName.trim() && (
-            <Text style={styles.autoSaveIndicator}>✓</Text>
-          )}
+          {presetName.trim() && <Text style={styles.autoSaveIndicator}>✓</Text>}
         </View>
       </View>
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
-        <SinglePlayer
-          ref={player1Ref}
-          playlist={playlist1}
-          playerNumber={1}
-          initialState={dualState?.player1}
-          onStateChange={handlePlayer1StateChange}
-          onLoadPlaylist={() => handleLoadPlaylist(1)}
-          isActiveMediaControl={activeMediaControlPlayer === 1}
-        />
+      {isLoadingInitialState ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Loading your music...</Text>
+        </View>
+      ) : (
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+          <SinglePlayer
+            ref={player1Ref}
+            playlist={playlist1}
+            playerNumber={1}
+            initialState={dualState?.player1}
+            onStateChange={handlePlayer1StateChange}
+            onLoadPlaylist={() => handleLoadPlaylist(1)}
+            isActiveMediaControl={activeMediaControlPlayer === 1}
+          />
 
-        <SinglePlayer
-          ref={player2Ref}
-          playlist={playlist2}
-          playerNumber={2}
-          initialState={dualState?.player2}
-          onStateChange={handlePlayer2StateChange}
-          onLoadPlaylist={() => handleLoadPlaylist(2)}
-          isActiveMediaControl={activeMediaControlPlayer === 2}
-        />
-      </ScrollView>
+          <SinglePlayer
+            ref={player2Ref}
+            playlist={playlist2}
+            playerNumber={2}
+            initialState={dualState?.player2}
+            onStateChange={handlePlayer2StateChange}
+            onLoadPlaylist={() => handleLoadPlaylist(2)}
+            isActiveMediaControl={activeMediaControlPlayer === 2}
+          />
+        </ScrollView>
+      )}
 
       {/* Sleep Timer Modal */}
       <Modal
@@ -484,6 +542,7 @@ export const MainPlayerScreen: React.FC = () => {
                     <TouchableOpacity
                       style={styles.presetItemButton}
                       onPress={() => handleLoadPreset(item)}
+                      disabled={isLoadingPreset}
                     >
                       <View style={styles.presetItemInfo}>
                         <Text style={styles.presetItemName}>{item.name}</Text>
@@ -493,6 +552,9 @@ export const MainPlayerScreen: React.FC = () => {
                           {item.playlist2 && `P2: ${item.playlist2.name}`}
                         </Text>
                       </View>
+                      {isLoadingPreset && (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                      )}
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.deletePresetButton}
@@ -771,5 +833,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textMuted,
     textAlign: 'center',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: colors.textSecondary,
   },
 });
