@@ -14,11 +14,13 @@ import {
   AppStateStatus,
   ActivityIndicator,
 } from 'react-native';
+import * as Updates from 'expo-updates';
 import { SinglePlayer, SinglePlayerRef } from '../components/SinglePlayer';
 import { StorageService, Playlist, DualPlayerState, Preset } from '../services/storage';
 import { PlaylistService } from '../services/playlistService';
 import { SleepTimer, SleepTimerDuration, SleepTimerState } from '../services/sleepTimer';
 import { colors } from '../theme/colors';
+import { BUILD_DATE } from '../constants/BuildInfo';
 
 export const MainPlayerScreen: React.FC = () => {
   const [playlist1, setPlaylist1] = useState<Playlist | null>(null);
@@ -31,6 +33,8 @@ export const MainPlayerScreen: React.FC = () => {
     totalSeconds: 0,
   });
   const [showSleepTimerModal, setShowSleepTimerModal] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const [isCheckingForUpdate, setIsCheckingForUpdate] = useState(false);
   const [presetName, setPresetName] = useState('');
   const [savedPresets, setSavedPresets] = useState<Preset[]>([]);
   const [showPresetsModal, setShowPresetsModal] = useState(false);
@@ -288,6 +292,60 @@ export const MainPlayerScreen: React.FC = () => {
     }
   };
 
+  const checkForUpdate = async () => {
+    try {
+      setIsCheckingForUpdate(true);
+      const update = await Updates.checkForUpdateAsync();
+
+      if (update.isAvailable) {
+        if (Platform.OS !== 'web') {
+          Alert.alert(
+            'Update Available',
+            'A new version of the app is available. Would you like to download and install it now?',
+            [
+              {
+                text: 'Cancel',
+                style: 'cancel',
+                onPress: () => setIsCheckingForUpdate(false),
+              },
+              {
+                text: 'Update',
+                onPress: async () => {
+                  try {
+                    await Updates.fetchUpdateAsync();
+                    await Updates.reloadAsync();
+                  } catch (error) {
+                    Alert.alert('Error', 'Failed to fetch update');
+                    setIsCheckingForUpdate(false);
+                  }
+                },
+              },
+            ]
+          );
+        } else {
+          if (confirm('A new version is available. Reload now?')) {
+             window.location.reload();
+          }
+           setIsCheckingForUpdate(false);
+        }
+      } else {
+        if (Platform.OS !== 'web') {
+          Alert.alert('No Update', 'You are already running the latest version.');
+        } else {
+           alert('You are already running the latest version.');
+        }
+        setIsCheckingForUpdate(false);
+      }
+    } catch (error) {
+      console.error('Error checking for update:', error);
+      if (Platform.OS !== 'web') {
+        Alert.alert('Error', 'Failed to check for updates.');
+      }
+      setIsCheckingForUpdate(false);
+    }
+  };
+
+
   const sleepTimerDurations: SleepTimerDuration[] = [5, 10, 15, 30, 45, 60, 90, 120];
 
   // Auto-save preset when name changes
@@ -415,6 +473,13 @@ export const MainPlayerScreen: React.FC = () => {
                 </Text>
               )}
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.headerActionButton}
+              onPress={() => setShowMenu(true)}
+            >
+              <Text style={styles.headerActionIcon}>☰</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -467,6 +532,48 @@ export const MainPlayerScreen: React.FC = () => {
           />
         </ScrollView>
       )}
+
+      {/* Main Menu Modal */}
+      <Modal
+        visible={showMenu}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowMenu(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowMenu(false)}
+        >
+          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+            <Text style={styles.modalTitle}>Menu</Text>
+            
+            <View style={styles.menuSection}>
+              <Text style={styles.menuLabel}>App Version</Text>
+              <Text style={styles.menuValue}>Build: {BUILD_DATE}</Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.updateButton}
+              onPress={checkForUpdate}
+              disabled={isCheckingForUpdate}
+            >
+              {isCheckingForUpdate ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <Text style={styles.updateButtonText}>Check for Updates</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setShowMenu(false)}
+            >
+              <Text style={styles.closeButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Sleep Timer Modal */}
       <Modal
@@ -674,6 +781,38 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+  },
+  menuSection: {
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 12,
+    padding: 16,
+    width: '100%',
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  menuLabel: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  menuValue: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  updateButton: {
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    padding: 16,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  updateButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.background,
   },
   modalContent: {
     backgroundColor: colors.surface,
