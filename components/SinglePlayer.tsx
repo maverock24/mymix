@@ -9,7 +9,7 @@ import {
   FlatList,
   Modal,
 } from 'react-native';
-import { Audio } from 'expo-av';
+import { Audio } from 'expo-audio';
 import Slider from '@react-native-community/slider';
 import { MediaControl, PlaybackState, Command } from '../services/mediaControl';
 import { Track, Playlist, PlayerState, RepeatMode } from '../services/storage';
@@ -544,23 +544,19 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     setRepeat(modes[(currentIndex + 1) % modes.length]);
   };
 
-  const handleVolumeChange = (value: number) => {
-    setVolume(value);
-  };
-
-  const handleVolumeComplete = async (value: number) => {
+  const handleVolumeChange = async (delta: number) => {
+    const newVolume = Math.max(0, Math.min(1, volume + delta));
+    setVolume(newVolume);
     if (sound) {
-      await sound.setVolumeAsync(value);
+      await sound.setVolumeAsync(newVolume);
     }
   };
 
-  const handleSpeedChange = (value: number) => {
-    setSpeed(value);
-  };
-
-  const handleSpeedComplete = async (value: number) => {
+  const handleSpeedChange = async (delta: number) => {
+    const newSpeed = Math.max(0.5, Math.min(2, speed + delta));
+    setSpeed(newSpeed);
     if (sound) {
-      await sound.setRateAsync(value, true);
+      await sound.setRateAsync(newSpeed, true);
     }
   };
 
@@ -578,21 +574,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     setCurrentTrackIndex(index);
     setPosition(0);
     setShowPlaylist(false); // Close playlist modal after selection
-  };
-
-  // Simple vertical slider handlers (direct position-based)
-  const handleVolumeSliderTouch = (e: any) => {
-    const { locationY } = e.nativeEvent;
-    const percentage = 1 - (locationY / 140); // Inverted: top = 100%, bottom = 0%
-    const newValue = Math.max(0, Math.min(1, percentage));
-    handleVolumeChange(newValue);
-  };
-
-  const handleSpeedSliderTouch = (e: any) => {
-    const { locationY } = e.nativeEvent;
-    const percentage = 1 - (locationY / 140); // Inverted: top = 100%, bottom = 0%
-    const newValue = Math.max(0.5, Math.min(2, 0.5 + percentage * 1.5));
-    handleSpeedChange(newValue);
   };
 
   const trackInfo = currentTrack
@@ -659,46 +640,44 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
           </View>
         ) : (
           <>
-            {/* Main Content - Side by Side Layout */}
+            {/* Main Content - Vertical Layout */}
             <View style={styles.mainContentContainer}>
-              {/* Left Side - Track Info + Controls */}
-              <View style={styles.leftSide}>
-                {/* Track Info */}
-                <View style={styles.trackInfo}>
-                  <Text style={styles.trackTitle} numberOfLines={1}>
-                    {trackInfo.title}
+              {/* Track Info */}
+              <View style={styles.trackInfo}>
+                <Text style={styles.trackTitle} numberOfLines={1}>
+                  {trackInfo.title}
+                </Text>
+                {trackInfo.artist && (
+                  <Text style={styles.trackArtist} numberOfLines={1}>
+                    {trackInfo.artist}
                   </Text>
-                  {trackInfo.artist && (
-                    <Text style={styles.trackArtist} numberOfLines={1}>
-                      {trackInfo.artist}
-                    </Text>
-                  )}
-                  <Text style={styles.playlistInfo}>
-                    {currentTrackIndex + 1} / {playlist.tracks.length}
-                  </Text>
-                </View>
+                )}
+                <Text style={styles.playlistInfo}>
+                  {currentTrackIndex + 1} / {playlist.tracks.length}
+                </Text>
+              </View>
 
-                {/* Progress Bar */}
-                <View style={styles.progressContainer}>
-                  <Text style={styles.timeText}>{PlaylistService.formatTime(position)}</Text>
-                  <Slider
-                    style={styles.progressSlider}
-                    minimumValue={0}
-                    maximumValue={duration || 1}
-                    value={position}
-                    onValueChange={handlePositionChange}
-                    onSlidingComplete={handlePositionComplete}
-                    minimumTrackTintColor={colors.primary}
-                    maximumTrackTintColor={colors.border}
-                    thumbTintColor={colors.primary}
-                  />
-                  <Text style={styles.timeText}>{PlaylistService.formatTime(duration)}</Text>
-                </View>
+              {/* Progress Bar */}
+              <View style={styles.progressContainer}>
+                <Text style={styles.timeText}>{PlaylistService.formatTime(position)}</Text>
+                <Slider
+                  style={styles.progressSlider}
+                  minimumValue={0}
+                  maximumValue={duration || 1}
+                  value={position}
+                  onValueChange={handlePositionChange}
+                  onSlidingComplete={handlePositionComplete}
+                  minimumTrackTintColor={colors.primary}
+                  maximumTrackTintColor={colors.border}
+                  thumbTintColor={colors.primary}
+                />
+                <Text style={styles.timeText}>{PlaylistService.formatTime(duration)}</Text>
+              </View>
 
-                {/* Playback Controls */}
-                <View style={styles.controlsSection}>
-                  {/* Mode Buttons and Playback Controls */}
-                  <View style={styles.controls}>
+              {/* Playback Controls */}
+              <View style={styles.controlsSection}>
+                {/* Mode Buttons and Playback Controls */}
+                <View style={styles.controls}>
                   <TouchableOpacity
                     onPress={toggleShuffle}
                     style={[styles.modeButton, shuffle && styles.modeButtonActive]}
@@ -742,63 +721,74 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                       {repeat === 'one' ? '1' : repeat === 'all' ? 'ALL' : 'OFF'}
                     </Text>
                   </TouchableOpacity>
-                  </View>
+                </View>
 
-                  {/* Playback Options */}
-                  <View style={styles.playbackOptions}>
-                    <TouchableOpacity
-                      onPress={() => setGaplessEnabled(!gaplessEnabled)}
-                      style={[styles.optionButtonCompact, gaplessEnabled && styles.optionButtonActive]}
-                    >
-                      <Text style={styles.optionIconSmall}>⚡</Text>
-                    </TouchableOpacity>
+                {/* Playback Options */}
+                <View style={styles.playbackOptions}>
+                  <TouchableOpacity
+                    onPress={() => setGaplessEnabled(!gaplessEnabled)}
+                    style={[styles.optionButtonCompact, gaplessEnabled && styles.optionButtonActive]}
+                  >
+                    <Text style={styles.optionIconSmall}>⚡</Text>
+                  </TouchableOpacity>
 
-                    <TouchableOpacity
-                      onPress={() => setCrossfadeEnabled(!crossfadeEnabled)}
-                      style={[styles.optionButtonCompact, crossfadeEnabled && styles.optionButtonActive]}
-                    >
-                      <Text style={styles.optionIconSmall}>🎚️</Text>
-                    </TouchableOpacity>
-                  </View>
+                  <TouchableOpacity
+                    onPress={() => setCrossfadeEnabled(!crossfadeEnabled)}
+                    style={[styles.optionButtonCompact, crossfadeEnabled && styles.optionButtonActive]}
+                  >
+                    <Text style={styles.optionIconSmall}>🎚️</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
 
-              {/* Right Side - Vertical Sliders */}
-              <View style={styles.slidersGroup}>
-                {/* Volume Slider */}
-                <View style={styles.verticalSliderContainer}>
-                  <Text style={styles.verticalSliderValue}>{Math.round(volume * 100)}</Text>
-                  <View
-                    style={styles.verticalSliderTrack}
-                    onStartShouldSetResponder={() => true}
-                    onMoveShouldSetResponder={() => true}
-                    onResponderGrant={handleVolumeSliderTouch}
-                    onResponderMove={handleVolumeSliderTouch}
-                    onResponderRelease={() => handleVolumeComplete(volume)}
+              {/* Volume and Speed Controls - New Row Layout */}
+              <View style={styles.secondaryControls}>
+                {/* Volume Control */}
+                <View style={styles.controlGroupHorizontal}>
+                  <TouchableOpacity
+                    style={styles.adjustButtonSmall}
+                    onPress={() => handleVolumeChange(-0.1)}
+                    disabled={volume <= 0}
                   >
-                    <View style={styles.verticalSliderBackground} />
-                    <View style={[styles.verticalSliderFill, { height: `${volume * 100}%` }]} />
-                    <View style={[styles.verticalSliderThumb, { bottom: `${volume * 100}%` }]} />
+                    <Text style={styles.adjustButtonText}>−</Text>
+                  </TouchableOpacity>
+                  
+                  <View style={styles.valueDisplayCompact}>
+                    <Text style={styles.valueLabel}>VOL</Text>
+                    <Text style={styles.valueTextCompact}>{Math.round(volume * 100)}%</Text>
                   </View>
-                  <Text style={styles.verticalSliderLabel}>🔊</Text>
+
+                  <TouchableOpacity
+                    style={styles.adjustButtonSmall}
+                    onPress={() => handleVolumeChange(0.1)}
+                    disabled={volume >= 1}
+                  >
+                    <Text style={styles.adjustButtonText}>+</Text>
+                  </TouchableOpacity>
                 </View>
 
-                {/* Speed Slider */}
-                <View style={styles.verticalSliderContainer}>
-                  <Text style={styles.verticalSliderValue}>{speed.toFixed(1)}×</Text>
-                  <View
-                    style={styles.verticalSliderTrack}
-                    onStartShouldSetResponder={() => true}
-                    onMoveShouldSetResponder={() => true}
-                    onResponderGrant={handleSpeedSliderTouch}
-                    onResponderMove={handleSpeedSliderTouch}
-                    onResponderRelease={() => handleSpeedComplete(speed)}
+                {/* Speed Control */}
+                <View style={styles.controlGroupHorizontal}>
+                  <TouchableOpacity
+                    style={styles.adjustButtonSmall}
+                    onPress={() => handleSpeedChange(-0.1)}
+                    disabled={speed <= 0.5}
                   >
-                    <View style={styles.verticalSliderBackground} />
-                    <View style={[styles.verticalSliderFill, { height: `${((speed - 0.5) / 1.5) * 100}%` }]} />
-                    <View style={[styles.verticalSliderThumb, { bottom: `${((speed - 0.5) / 1.5) * 100}%` }]} />
+                    <Text style={styles.adjustButtonText}>−</Text>
+                  </TouchableOpacity>
+                  
+                  <View style={styles.valueDisplayCompact}>
+                    <Text style={styles.valueLabel}>SPEED</Text>
+                    <Text style={styles.valueTextCompact}>{speed.toFixed(1)}×</Text>
                   </View>
-                  <Text style={styles.verticalSliderLabel}>⚡</Text>
+
+                  <TouchableOpacity
+                    style={styles.adjustButtonSmall}
+                    onPress={() => handleSpeedChange(0.1)}
+                    disabled={speed >= 2}
+                  >
+                    <Text style={styles.adjustButtonText}>+</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             </View>
@@ -940,43 +930,43 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 12,
+    padding: 16,
     backgroundColor: colors.backgroundSecondary,
-    borderBottomWidth: 1,
+    borderBottomWidth: 2,
     borderBottomColor: colors.border,
   },
   playerLabel: {
-    fontSize: 16,
+    fontSize: 20,
     fontWeight: 'bold',
     color: colors.textPrimary,
   },
   headerButtons: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 12,
   },
   settingsButton: {
     backgroundColor: colors.backgroundSecondary,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.border,
   },
   settingsButtonText: {
-    fontSize: 16,
+    fontSize: 20,
   },
   loadButton: {
     backgroundColor: colors.primary,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
   loadButtonText: {
-    fontSize: 18,
+    fontSize: 22,
   },
   playlistSection: {
     borderBottomWidth: 1,
@@ -984,11 +974,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.backgroundTertiary,
   },
   playlistToggle: {
-    padding: 10,
-    paddingHorizontal: 12,
+    padding: 14,
+    paddingHorizontal: 16,
+    minHeight: 48,
   },
   playlistToggleText: {
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '600',
     color: colors.textPrimary,
   },
@@ -1027,204 +1018,219 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: 48,
   },
   emptyText: {
-    fontSize: 13,
+    fontSize: 17,
+    fontWeight: '600',
     color: colors.textMuted,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   emptySubtext: {
-    fontSize: 11,
+    fontSize: 14,
     color: colors.textMuted,
     textAlign: 'center',
     fontStyle: 'italic',
   },
   trackInfo: {
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   trackTitle: {
-    fontSize: 14,
+    fontSize: 18,
     fontWeight: 'bold',
     color: colors.textPrimary,
-    marginBottom: 4,
+    marginBottom: 6,
     textAlign: 'center',
   },
   trackArtist: {
-    fontSize: 11,
+    fontSize: 14,
     color: colors.textSecondary,
-    marginBottom: 4,
+    marginBottom: 6,
   },
   playlistInfo: {
-    fontSize: 10,
+    fontSize: 13,
+    fontWeight: '600',
     color: colors.textMuted,
   },
   progressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   progressSlider: {
     flex: 1,
-    marginHorizontal: 8,
-    height: 30,
+    marginHorizontal: 12,
+    height: 40,
   },
   timeText: {
-    fontSize: 10,
+    fontSize: 13,
+    fontWeight: '600',
     color: colors.textSecondary,
-    width: 38,
+    width: 48,
   },
   mainContentContainer: {
-    flexDirection: 'row',
-    flex: 1,
-    gap: 12,
-  },
-  leftSide: {
-    flex: 1,
+    flexDirection: 'column',
+    width: '100%',
   },
   controlsSection: {
     alignItems: 'center',
+    marginBottom: 20,
   },
-  slidersGroup: {
+  secondaryControls: {
     flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: 12,
-    paddingVertical: 8,
-  },
-  verticalSliderContainer: {
+    justifyContent: 'space-around',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    width: 42,
-  },
-  verticalSliderTrack: {
-    width: 32,
-    height: 140,
-    backgroundColor: colors.border + '40',
-    borderRadius: 16,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  verticalSliderBackground: {
-    position: 'absolute',
     width: '100%',
-    height: '100%',
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border + '40',
+  },
+  controlGroupHorizontal: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.backgroundSecondary,
+    borderRadius: 12,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  verticalSliderFill: {
-    position: 'absolute',
-    bottom: 0,
-    width: '100%',
+  adjustButtonSmall: {
+    width: 40,
+    height: 40,
     backgroundColor: colors.primary,
-    borderRadius: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  verticalSliderThumb: {
-    position: 'absolute',
-    width: 32,
-    height: 32,
-    backgroundColor: colors.primary,
-    borderRadius: 16,
-    marginBottom: -16,
-    borderWidth: 3,
-    borderColor: colors.background,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+  adjustButtonText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: colors.background,
+    lineHeight: 24,
   },
-  verticalSliderValue: {
+  valueDisplayCompact: {
+    minWidth: 70,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  valueTextCompact: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.textPrimary,
+  },
+  valueLabel: {
     fontSize: 10,
     color: colors.textSecondary,
     fontWeight: '600',
-    marginBottom: 6,
-  },
-  verticalSliderLabel: {
-    fontSize: 16,
-    marginTop: 6,
+    marginBottom: 2,
   },
   controls: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
-    gap: 6,
+    marginBottom: 16,
+    gap: 16,
+    width: '100%',
   },
   modeButton: {
     backgroundColor: colors.backgroundSecondary,
-    borderRadius: 6,
-    borderWidth: 1.5,
+    borderRadius: 12,
+    borderWidth: 1,
     borderColor: colors.border,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    width: 42,
-    height: 48,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    width: 60,
+    height: 60,
     alignItems: 'center',
     justifyContent: 'center',
   },
   modeButtonActive: {
-    backgroundColor: colors.primary + '25',
+    backgroundColor: colors.primary + '15',
     borderColor: colors.primary,
-  },
-  modeIcon: {
-    fontSize: 16,
-    marginBottom: 1,
+    borderWidth: 2,
   },
   modeLabelSmall: {
-    fontSize: 7,
+    fontSize: 9,
     fontWeight: 'bold',
-    color: colors.primary,
+    color: colors.textPrimary,
     textAlign: 'center',
-    marginTop: 1,
+    marginTop: 4,
   },
   modeLabelInactive: {
     color: colors.textMuted,
-    opacity: 0.6,
   },
   controlButton: {
-    padding: 6,
-    marginHorizontal: 2,
-  },
-  controlIcon: {
-    fontSize: 22,
-    color: colors.textPrimary,
-  },
-  playButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 28,
+    padding: 8,
     width: 56,
     height: 56,
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: 6,
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  controlIcon: {
+    fontSize: 28,
+    color: colors.textPrimary,
+  },
+  playButton: {
+    backgroundColor: colors.primary,
+    borderRadius: 44,
+    width: 88,
+    height: 88,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 12,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
   },
   playIcon: {
-    fontSize: 26,
+    fontSize: 44,
     color: colors.background,
+    // marginLeft: 4, // Removed manual optical adjustment
+  },
+  trackTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: colors.textPrimary,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  trackArtist: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    marginBottom: 8,
   },
   playbackOptions: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
+    gap: 20,
   },
   optionButtonCompact: {
     backgroundColor: colors.backgroundSecondary,
-    borderRadius: 5,
-    borderWidth: 1.5,
+    borderRadius: 12,
+    borderWidth: 1,
     borderColor: colors.border,
-    width: 32,
-    height: 32,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
   optionButtonActive: {
     backgroundColor: colors.primary + '20',
     borderColor: colors.primary,
+    borderWidth: 3,
   },
   optionIconSmall: {
-    fontSize: 14,
+    fontSize: 20,
   },
   modalOverlay: {
     flex: 1,

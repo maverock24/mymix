@@ -388,26 +388,27 @@ export const MainPlayerScreen: React.FC = () => {
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View style={styles.headerText}>
-            <Text style={styles.title}>MyMix - Dual MP3 Player</Text>
-            <Text style={styles.subtitle}>Play two audio tracks simultaneously</Text>
+            <Text style={styles.title}>MyMix</Text>
           </View>
+          
           <View style={styles.headerButtons}>
             <TouchableOpacity
-              style={styles.presetsButton}
+              style={styles.headerActionButton}
               onPress={() => setShowPresetsModal(true)}
             >
-              <Text style={styles.presetsButtonText}>📋</Text>
+              <Text style={styles.headerActionIcon}>📋</Text>
               {savedPresets.length > 0 && (
                 <View style={styles.presetsBadge}>
                   <Text style={styles.presetsBadgeText}>{savedPresets.length}</Text>
                 </View>
               )}
             </TouchableOpacity>
+            
             <TouchableOpacity
-              style={styles.sleepTimerButton}
+              style={[styles.headerActionButton, sleepTimerState.isActive && styles.activeSleepTimer]}
               onPress={() => setShowSleepTimerModal(true)}
             >
-              <Text style={styles.sleepTimerIcon}>😴</Text>
+              <Text style={styles.headerActionIcon}>😴</Text>
               {sleepTimerState.isActive && (
                 <Text style={styles.sleepTimerText}>
                   {sleepTimer.formatTime(sleepTimerState.remainingSeconds)}
@@ -418,16 +419,23 @@ export const MainPlayerScreen: React.FC = () => {
         </View>
 
         {/* Preset Name Input */}
-        <View style={styles.presetNameContainer}>
-          <Text style={styles.presetNameLabel}>Preset:</Text>
-          <TextInput
-            style={styles.presetNameInput}
-            placeholder="Enter name to save..."
-            placeholderTextColor={colors.textMuted}
-            value={presetName}
-            onChangeText={handlePresetNameChange}
-          />
-          {presetName.trim() && <Text style={styles.autoSaveIndicator}>✓</Text>}
+        <View style={styles.presetInputWrapper}>
+          <View style={styles.presetNameContainer}>
+            <Text style={styles.presetNameIcon}>💾</Text>
+            <TextInput
+              style={styles.presetNameInput}
+              placeholder="Name this mix..."
+              placeholderTextColor={colors.textMuted}
+              value={presetName}
+              onChangeText={handlePresetNameChange}
+            />
+            {presetName.trim() ? (
+              <View style={styles.saveStatusContainer}>
+                <Text style={styles.autoSaveText}>Saved</Text>
+                <Text style={styles.autoSaveIndicator}>✓</Text>
+              </View>
+            ) : null}
+          </View>
         </View>
       </View>
 
@@ -587,7 +595,7 @@ const styles = StyleSheet.create({
   },
   header: {
     padding: 16,
-    paddingTop: 36,
+    paddingTop: 48, // More top padding for status bar
     backgroundColor: colors.backgroundSecondary,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
@@ -595,42 +603,43 @@ const styles = StyleSheet.create({
   headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
+    alignItems: 'center',
+    marginBottom: 16,
   },
   headerText: {
     flex: 1,
   },
   headerButtons: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 12,
   },
   title: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
     color: colors.textPrimary,
-    marginBottom: 4,
   },
-  subtitle: {
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  presetsButton: {
+  headerActionButton: {
     backgroundColor: colors.surface,
-    borderRadius: 8,
-    padding: 8,
-    paddingHorizontal: 12,
+    borderRadius: 12,
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
     position: 'relative',
   },
-  presetsButtonText: {
-    fontSize: 20,
+  activeSleepTimer: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary + '10',
+  },
+  headerActionIcon: {
+    fontSize: 22,
   },
   presetsBadge: {
     position: 'absolute',
-    top: -4,
-    right: -4,
+    top: -6,
+    right: -6,
     backgroundColor: colors.primary,
     borderRadius: 10,
     minWidth: 20,
@@ -638,28 +647,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: colors.backgroundSecondary,
   },
   presetsBadgeText: {
     fontSize: 10,
     fontWeight: 'bold',
     color: colors.background,
   },
-  sleepTimerButton: {
-    backgroundColor: colors.surface,
-    borderRadius: 8,
-    padding: 8,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sleepTimerIcon: {
-    fontSize: 20,
-  },
   sleepTimerText: {
-    fontSize: 10,
+    position: 'absolute',
+    bottom: 2,
+    fontSize: 8,
     color: colors.primary,
-    fontWeight: '600',
-    marginTop: 2,
+    fontWeight: 'bold',
   },
   scrollView: {
     flex: 1,
@@ -742,15 +743,22 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.textPrimary,
   },
+  presetInputWrapper: {
+    marginBottom: 4,
+  },
   presetNameContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.surface,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  presetNameIcon: {
+    fontSize: 16,
+    marginRight: 12,
   },
   presetNameLabel: {
     fontSize: 14,
@@ -760,14 +768,29 @@ const styles = StyleSheet.create({
   },
   presetNameInput: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 16,
     color: colors.textPrimary,
     padding: 0,
   },
-  autoSaveIndicator: {
-    fontSize: 16,
-    color: colors.primary,
+  saveStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginLeft: 8,
+    backgroundColor: colors.primary + '15',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  autoSaveText: {
+    fontSize: 10,
+    color: colors.primary,
+    fontWeight: '600',
+    marginRight: 4,
+  },
+  autoSaveIndicator: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: 'bold',
   },
   presetsModal: {
     backgroundColor: colors.surface,
