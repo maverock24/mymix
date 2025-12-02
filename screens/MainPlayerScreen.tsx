@@ -40,6 +40,7 @@ export const MainPlayerScreen: React.FC = () => {
   const [showPresetsModal, setShowPresetsModal] = useState(false);
   const [isLoadingPreset, setIsLoadingPreset] = useState(false);
   const [isLoadingInitialState, setIsLoadingInitialState] = useState(true);
+  const [isLinked, setIsLinked] = useState(true);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const player1Ref = useRef<SinglePlayerRef>(null);
@@ -102,7 +103,7 @@ export const MainPlayerScreen: React.FC = () => {
         player2Ref.current?.pause(),
       ]);
 
-      if (Platform.OS !== 'web') {
+      if ((Platform.OS as string) !== 'web') {
         Alert.alert('Sleep Timer', 'Sleep timer finished - playback stopped');
       }
     } catch (error) {
@@ -206,7 +207,7 @@ export const MainPlayerScreen: React.FC = () => {
       }
     } catch (error) {
       console.error('Error picking files:', error);
-      if (Platform.OS !== 'web') {
+      if ((Platform.OS as string) !== 'web') {
         Alert.alert('Error', 'Failed to load audio files');
       }
     } finally {
@@ -238,16 +239,16 @@ export const MainPlayerScreen: React.FC = () => {
       }
 
       // Auto-start Background when Main starts playing
-      if (state.isPlaying && !dualState?.player2.isPlaying && playlist2) {
+      if (isLinked && state.isPlaying && !dualState?.player2.isPlaying && playlist2) {
         player2Ref.current?.play();
       }
 
       // Auto-pause Background when Main pauses
-      if (!state.isPlaying && dualState?.player2.isPlaying) {
+      if (isLinked && !state.isPlaying && dualState?.player2.isPlaying) {
         player2Ref.current?.pause();
       }
     },
-    [dualState, activeMediaControlPlayer, playlist2]
+    [dualState, activeMediaControlPlayer, playlist2, isLinked]
   );
 
   const handlePlayer2StateChange = useCallback(
@@ -274,14 +275,14 @@ export const MainPlayerScreen: React.FC = () => {
   const handleStartSleepTimer = (minutes: SleepTimerDuration) => {
     sleepTimer.start(minutes, handleSleepTimerComplete);
     setShowSleepTimerModal(false);
-    if (Platform.OS !== 'web') {
+    if ((Platform.OS as string) !== 'web') {
       Alert.alert('Sleep Timer', `Timer set for ${minutes} minutes`);
     }
   };
 
   const handleStopSleepTimer = () => {
     sleepTimer.stop();
-    if (Platform.OS !== 'web') {
+    if ((Platform.OS as string) !== 'web') {
       Alert.alert('Sleep Timer', 'Timer cancelled');
     }
   };
@@ -292,7 +293,7 @@ export const MainPlayerScreen: React.FC = () => {
 
       // Check if running in development mode
       if (__DEV__) {
-        if (Platform.OS !== 'web') {
+        if ((Platform.OS as string) !== 'web') {
           Alert.alert(
             'Development Mode',
             'Updates are not available in development mode. Build and run a production version to check for updates.'
@@ -307,7 +308,7 @@ export const MainPlayerScreen: React.FC = () => {
       const update = await Updates.checkForUpdateAsync();
 
       if (update.isAvailable) {
-        if (Platform.OS !== 'web') {
+        if ((Platform.OS as string) !== 'web') {
           Alert.alert(
             'Update Available',
             'A new version of the app is available. Would you like to download and install it now?',
@@ -339,7 +340,7 @@ export const MainPlayerScreen: React.FC = () => {
            setIsCheckingForUpdate(false);
         }
       } else {
-        if (Platform.OS !== 'web') {
+        if ((Platform.OS as string) !== 'web') {
           Alert.alert('No Update', 'You are already running the latest version.');
         } else {
            alert('You are already running the latest version.');
@@ -349,7 +350,7 @@ export const MainPlayerScreen: React.FC = () => {
     } catch (error) {
       console.error('Error checking for update:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (Platform.OS !== 'web') {
+      if ((Platform.OS as string) !== 'web') {
         Alert.alert('Error', `Failed to check for updates: ${errorMessage}`);
       } else {
         alert(`Failed to check for updates: ${errorMessage}`);
@@ -412,7 +413,7 @@ export const MainPlayerScreen: React.FC = () => {
       setShowPresetsModal(false);
     } catch (error) {
       console.error('[MainPlayerScreen] Error loading preset:', error);
-      if (Platform.OS !== 'web') {
+      if ((Platform.OS as string) !== 'web') {
         Alert.alert('Error', 'Failed to load preset');
       }
     } finally {
@@ -422,7 +423,7 @@ export const MainPlayerScreen: React.FC = () => {
 
   // Delete a preset
   const handleDeletePreset = async (id: string, name: string) => {
-    if (Platform.OS !== 'web') {
+    if ((Platform.OS as string) !== 'web') {
       Alert.alert(
         'Delete Preset',
         `Delete "${name}"?`,
@@ -475,6 +476,13 @@ export const MainPlayerScreen: React.FC = () => {
               )}
             </TouchableOpacity>
             
+            <TouchableOpacity
+              style={[styles.headerActionButton, !isLinked && styles.inactiveLinkButton]}
+              onPress={() => setIsLinked(!isLinked)}
+            >
+              <Text style={styles.headerActionIcon}>{isLinked ? '🔗' : '🔓'}</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={[styles.headerActionButton, sleepTimerState.isActive && styles.activeSleepTimer]}
               onPress={() => setShowSleepTimerModal(true)}
@@ -533,6 +541,7 @@ export const MainPlayerScreen: React.FC = () => {
             onLoadPlaylist={() => handleLoadPlaylist(1)}
             isActiveMediaControl={activeMediaControlPlayer === 1}
             isLoadingPlaylist={isLoadingPlaylist === 1}
+            playbackGroupId="main-players"
           />
 
           <SinglePlayer
@@ -544,6 +553,7 @@ export const MainPlayerScreen: React.FC = () => {
             onLoadPlaylist={() => handleLoadPlaylist(2)}
             isActiveMediaControl={activeMediaControlPlayer === 2}
             isLoadingPlaylist={isLoadingPlaylist === 2}
+            playbackGroupId="main-players"
           />
         </ScrollView>
       )}
@@ -716,17 +726,23 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   header: {
-    padding: 16,
-    paddingTop: 48, // More top padding for status bar
+    padding: 20,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
     backgroundColor: colors.backgroundSecondary,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    zIndex: 10,
   },
   headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   headerText: {
     flex: 1,
@@ -736,15 +752,16 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: colors.textPrimary,
+    fontSize: 32,
+    fontWeight: '800',
+    color: colors.primary,
+    letterSpacing: -0.5,
   },
   headerActionButton: {
     backgroundColor: colors.surface,
     borderRadius: 12,
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -753,27 +770,31 @@ const styles = StyleSheet.create({
   },
   activeSleepTimer: {
     borderColor: colors.primary,
-    backgroundColor: colors.primary + '10',
+    backgroundColor: colors.primary + '15',
+  },
+  inactiveLinkButton: {
+    borderColor: colors.textMuted,
+    opacity: 0.7,
   },
   headerActionIcon: {
-    fontSize: 22,
+    fontSize: 20,
   },
   presetsBadge: {
     position: 'absolute',
-    top: -6,
-    right: -6,
+    top: -4,
+    right: -4,
     backgroundColor: colors.primary,
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: colors.backgroundSecondary,
   },
   presetsBadgeText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: 'bold',
     color: colors.background,
   },
@@ -781,6 +802,51 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 2,
     fontSize: 8,
+    color: colors.primary,
+    fontWeight: 'bold',
+  },
+  presetInputWrapper: {
+    marginTop: 4,
+  },
+  presetNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  presetNameIcon: {
+    fontSize: 14,
+    marginRight: 8,
+    opacity: 0.7,
+  },
+  presetNameInput: {
+    flex: 1,
+    fontSize: 15,
+    color: colors.textPrimary,
+    padding: 0,
+    height: 24,
+  },
+  saveStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    backgroundColor: colors.primary + '10',
+    borderRadius: 4,
+  },
+  autoSaveText: {
+    fontSize: 10,
+    color: colors.primary,
+    fontWeight: '600',
+    marginRight: 2,
+  },
+  autoSaveIndicator: {
+    fontSize: 10,
     color: colors.primary,
     fontWeight: 'bold',
   },
@@ -792,7 +858,7 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
@@ -831,24 +897,29 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 24,
     width: '100%',
     maxWidth: 400,
     borderWidth: 1,
     borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
   },
   modalTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: 'bold',
     color: colors.textPrimary,
     marginBottom: 8,
     textAlign: 'center',
   },
   modalSubtitle: {
-    fontSize: 14,
+    fontSize: 16,
     color: colors.textSecondary,
-    marginBottom: 20,
+    marginBottom: 24,
     textAlign: 'center',
   },
   timerGrid: {
@@ -859,8 +930,8 @@ const styles = StyleSheet.create({
   },
   timerOption: {
     backgroundColor: colors.backgroundSecondary,
-    borderRadius: 8,
-    padding: 16,
+    borderRadius: 12,
+    paddingVertical: 16,
     width: '48%',
     marginBottom: 12,
     alignItems: 'center',
@@ -874,7 +945,7 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     backgroundColor: colors.error || '#EF4444',
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 14,
     alignItems: 'center',
     marginBottom: 12,
@@ -886,7 +957,7 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     backgroundColor: colors.backgroundSecondary,
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 14,
     alignItems: 'center',
     borderWidth: 1,
@@ -896,55 +967,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: colors.textPrimary,
-  },
-  presetInputWrapper: {
-    marginBottom: 4,
-  },
-  presetNameContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  presetNameIcon: {
-    fontSize: 16,
-    marginRight: 12,
-  },
-  presetNameLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    marginRight: 8,
-  },
-  presetNameInput: {
-    flex: 1,
-    fontSize: 16,
-    color: colors.textPrimary,
-    padding: 0,
-  },
-  saveStatusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 8,
-    backgroundColor: colors.primary + '15',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  autoSaveText: {
-    fontSize: 10,
-    color: colors.primary,
-    fontWeight: '600',
-    marginRight: 4,
-  },
-  autoSaveIndicator: {
-    fontSize: 12,
-    color: colors.primary,
-    fontWeight: 'bold',
   },
   presetsModal: {
     backgroundColor: colors.surface,

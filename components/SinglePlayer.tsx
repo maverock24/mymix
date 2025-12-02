@@ -13,10 +13,11 @@ import {
 } from 'react-native';
 import { Audio } from 'expo-av';
 import Slider from '@react-native-community/slider';
-import { MediaControl, PlaybackState, Command } from '../services/mediaControl';
+import { PlaybackState, Command, MediaControl } from '../services/mediaControl';
 import { Track, Playlist, PlayerState, RepeatMode } from '../services/storage';
 import { PlaylistService } from '../services/playlistService';
 import { colors } from '../theme/colors';
+import { playbackCoordinator } from '../services/playbackCoordinator';
 
 type SortOption = 'default' | 'title' | 'artist' | 'duration';
 
@@ -28,6 +29,7 @@ interface SinglePlayerProps {
   onLoadPlaylist: () => void;
   isActiveMediaControl?: boolean;
   isLoadingPlaylist?: boolean;
+  playbackGroupId?: string;
 }
 
 export interface SinglePlayerRef {
@@ -43,6 +45,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   onLoadPlaylist,
   isActiveMediaControl = false,
   isLoadingPlaylist = false,
+  playbackGroupId = 'default',
 }, ref) => {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -152,7 +155,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   // Initialize audio mode on mount
   useEffect(() => {
     const initializeAudioMode = async () => {
-      if (Platform.OS !== 'web') {
+      if ((Platform.OS as string) !== 'web') {
         try {
           await Audio.setAudioModeAsync({
             playsInSilentModeIOS: true,
@@ -184,6 +187,18 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     loadFavorites();
   }, []);
 
+  // Register with PlaybackCoordinator
+  useEffect(() => {
+    const id = `single-player-${playerNumber}`;
+    return playbackCoordinator.register(id, playbackGroupId, async () => {
+      if (soundRef.current) { // Use ref to access latest sound instance
+        console.log(`[Player ${playerNumber}] Pausing due to coordinator request`);
+        await soundRef.current.pauseAsync();
+        setIsPlaying(false);
+      }
+    });
+  }, [playerNumber, playbackGroupId]);
+
   // Expose pause and play methods to parent via ref
   useImperativeHandle(ref, () => ({
     pause: async () => {
@@ -194,11 +209,12 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     },
     play: async () => {
       if (sound && !isPlaying) {
+        playbackCoordinator.notifyPlay(playbackGroupId);
         await sound.playAsync();
         setIsPlaying(true);
       }
     },
-  }), [sound, isPlaying]);
+  }), [sound, isPlaying, playbackGroupId]);
 
   // Emit state changes
   useEffect(() => {
@@ -223,11 +239,11 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       hasPlaylist: !!playlist,
       currentTrackIndex,
       hasCurrentTrack: !!currentTrack,
-      trackTitle: currentTrack?.title
+      trackTitle: currentTrack?.name
     });
 
     if (playlist && currentTrack) {
-      console.log(`[Player ${playerNumber}] Loading track at index ${currentTrackIndex}:`, currentTrack.title);
+      console.log(`[Player ${playerNumber}] Loading track at index ${currentTrackIndex}:`, currentTrack.name);
       loadTrack(currentTrack);
     } else {
       console.log(`[Player ${playerNumber}] Cannot load track - missing playlist or track`);
@@ -334,7 +350,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       if (cleanup) {
         cleanup();
       }
-      if (Platform.OS !== 'web') {
+      if ((Platform.OS as string) !== 'web') {
         MediaControl.removeAllListeners();
       }
     };
@@ -394,7 +410,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
 
   const loadTrack = async (track: Track) => {
     try {
-      console.log(`[Player ${playerNumber}] Loading track:`, track.title);
+      console.log(`[Player ${playerNumber}] Loading track:`, track.name);
       setIsLoading(true);
 
       console.log(`[Player ${playerNumber}] Setting audio mode...`);
@@ -410,9 +426,23 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       await unloadSound();
 
       let uri = track.uri;
-      if (Platform.OS === 'web' && track.data) {
-        blobUrl.current = URL.createObjectURL(track.data);
-        uri = blobUrl.current;
+      if (Platform.OS === 'web') {
+        if (track.data) {
+          blobUrl.current = URL.createObjectURL(track.data);
+          uri = blobUrl.current;
+        } else if (track.fileHandle) {
+          console.log(`[Player ${playerNumber}] Lazy loading content from file handle...`);
+          try {
+            const file = await track.fileHandle.getFile();
+            blobUrl.current = URL.createObjectURL(file);
+            uri = blobUrl.current;
+            console.log(`[Player ${playerNumber}] File loaded, blob size:`, file.size);
+          } catch (err) {
+            console.error(`[Player ${playerNumber}] Error loading file from handle:`, err);
+            // If permission is lost, we might need to handle it, but for now let it fail gracefully
+            throw new Error('Could not access file. You may need to reload the folder.');
+          }
+        }
       }
 
       console.log(`[Player ${playerNumber}] Creating sound from URI:`, uri);
@@ -444,6 +474,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
           isInitialLoad.current = false;
 
           if (initialState.isPlaying) {
+            playbackCoordinator.notifyPlay(playbackGroupId);
             await newSound.playAsync();
             setIsPlaying(true);
           }
@@ -456,6 +487,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
 
         if (shouldAutoPlay) {
           try {
+            playbackCoordinator.notifyPlay(playbackGroupId);
             await newSound.playAsync();
             setIsPlaying(true);
             setShouldAutoPlay(false);
@@ -488,9 +520,14 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
         if (status.didJustFinish && !isCrossfading) {
           handleTrackFinish();
         }
+        
+        // Sync isPlaying state if it changes externally (e.g. interruption)
+        if (status.isPlaying !== isPlaying) {
+          setIsPlaying(status.isPlaying);
+        }
       }
     },
-    [duration, isCrossfading]
+    [duration, isCrossfading, isPlaying]
   );
 
   const handleCrossfade = async () => {
@@ -570,6 +607,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
         console.log(`[Player ${playerNumber}] Paused successfully`);
       } else {
         console.log(`[Player ${playerNumber}] Playing...`);
+        playbackCoordinator.notifyPlay(playbackGroupId);
         await sound.playAsync();
         setIsPlaying(true);
         console.log(`[Player ${playerNumber}] Playing successfully`);
@@ -776,8 +814,44 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
         </View>
       </View>
 
-      {/* Playlist - Track Count Button */}
-      {playlist && playlist.tracks.length > 0 && (
+      {/* Inline Playlist for Player 1 */}
+      {playerNumber === 1 && playlist && (
+        <View style={styles.inlinePlaylistContainer}>
+           {/* Search and Sort Bar for Inline Playlist */}
+            <View style={styles.searchSortBar}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search..."
+                placeholderTextColor={colors.textMuted}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              <TouchableOpacity
+                style={styles.sortButton}
+                onPress={() => {
+                  const options: SortOption[] = ['default', 'title', 'artist'];
+                  const currentIndex = options.indexOf(sortOption);
+                  setSortOption(options[(currentIndex + 1) % options.length]);
+                }}
+              >
+                <Text style={styles.sortButtonText}>
+                  {sortOption === 'default' ? '⇅' : sortOption === 'title' ? 'A-Z' : '🎤'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <FlatList
+              data={getFilteredSortedTracks()}
+              renderItem={renderPlaylistItem}
+              keyExtractor={(item) => item.id}
+              nestedScrollEnabled={true}
+              style={styles.inlinePlaylistList}
+            />
+        </View>
+      )}
+
+      {/* Playlist - Track Count Button (Only for Player 2) */}
+      {playerNumber !== 1 && playlist && playlist.tracks.length > 0 && (
         <TouchableOpacity
           onPress={() => setShowPlaylist(true)}
           style={styles.playlistToggle}
@@ -791,7 +865,11 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       {/* Player Controls */}
       <View style={styles.playerArea}>
         {!playlist ? (
-          <View style={styles.emptyState}>
+          <TouchableOpacity 
+            style={styles.emptyStateContainer} 
+            onPress={onLoadPlaylist}
+            activeOpacity={0.7}
+          >
             {isLoadingPlaylist ? (
               <>
                 <ActivityIndicator size="large" color={colors.primary} style={styles.loadingIndicator} />
@@ -799,15 +877,21 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
               </>
             ) : (
               <>
-                <Text style={styles.emptyText}>Tap 📁 to select a folder</Text>
+                <View style={styles.emptyIconContainer}>
+                  <Text style={styles.emptyIconLarge}>📁</Text>
+                  <View style={styles.emptyIconPlusBadge}>
+                    <Text style={styles.emptyIconPlusText}>+</Text>
+                  </View>
+                </View>
+                <Text style={styles.emptyText}>Tap to Load Music</Text>
                 <Text style={styles.emptySubtext}>
                   {Platform.OS === 'web'
-                    ? 'Multiple file selection on web'
-                    : 'Choose a folder with your audio files'}
+                    ? 'Select audio files to play'
+                    : 'Choose a folder to start listening'}
                 </Text>
               </>
             )}
-          </View>
+          </TouchableOpacity>
         ) : (
           <>
             {/* Main Content - Vertical Layout */}
@@ -891,14 +975,9 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                 <View style={styles.controls}>
                   <TouchableOpacity
                     onPress={toggleShuffle}
-                    style={[styles.modeButton, shuffle && styles.modeButtonActive]}
+                    style={[styles.controlButton, shuffle && styles.controlButtonActive]}
                   >
-                    <Text style={[styles.modeLabelSmall, !shuffle && styles.modeLabelInactive]}>
-                      SHUFFLE
-                    </Text>
-                    <Text style={[styles.modeLabelSmall, !shuffle && styles.modeLabelInactive]}>
-                      {shuffle ? 'ON' : 'OFF'}
-                    </Text>
+                    <Text style={[styles.controlIconSmall, shuffle && styles.controlIconActive]}>🔀</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity onPress={handlePrevious} style={styles.controlButton}>
@@ -923,13 +1002,10 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
 
                   <TouchableOpacity
                     onPress={cycleRepeat}
-                    style={[styles.modeButton, repeat !== 'off' && styles.modeButtonActive]}
+                    style={[styles.controlButton, repeat !== 'off' && styles.controlButtonActive]}
                   >
-                    <Text style={[styles.modeLabelSmall, repeat === 'off' && styles.modeLabelInactive]}>
-                      REPEAT
-                    </Text>
-                    <Text style={[styles.modeLabelSmall, repeat === 'off' && styles.modeLabelInactive]}>
-                      {repeat === 'one' ? '1' : repeat === 'all' ? 'ALL' : 'OFF'}
+                    <Text style={[styles.controlIconSmall, repeat !== 'off' && styles.controlIconActive]}>
+                      {repeat === 'one' ? '🔂' : '🔁'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -1246,30 +1322,59 @@ const styles = StyleSheet.create({
   playerArea: {
     padding: 8,
   },
-  emptyState: {
+  emptyStateContainer: {
     alignItems: 'center',
-    paddingVertical: 24,
+    justifyContent: 'center',
+    paddingVertical: 40,
+    width: '100%',
+  },
+  emptyIconContainer: {
+    position: 'relative',
+    marginBottom: 16,
+  },
+  emptyIconLarge: {
+    fontSize: 64,
+    opacity: 0.8,
+  },
+  emptyIconPlusBadge: {
+    position: 'absolute',
+    bottom: -4,
+    right: -4,
+    backgroundColor: colors.primary,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.surface,
+  },
+  emptyIconPlusText: {
+    color: colors.background,
+    fontWeight: 'bold',
+    fontSize: 16,
+    marginTop: -2,
   },
   loadingIndicator: {
     marginBottom: 12,
   },
   loadingText: {
-    fontSize: 14,
+    fontSize: 16,
     color: colors.textSecondary,
     textAlign: 'center',
+    fontWeight: '600',
   },
   emptyText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textMuted,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.textPrimary,
     textAlign: 'center',
     marginBottom: 8,
   },
   emptySubtext: {
-    fontSize: 12,
-    color: colors.textMuted,
+    fontSize: 14,
+    color: colors.textSecondary,
     textAlign: 'center',
-    fontStyle: 'italic',
   },
   trackInfo: {
     alignItems: 'center',
@@ -1412,38 +1517,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
-    gap: 8,
+    gap: 12,
     width: '100%',
   },
-  modeButton: {
-    backgroundColor: colors.backgroundSecondary,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    width: 48,
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modeButtonActive: {
-    backgroundColor: colors.primary + '15',
-    borderColor: colors.primary,
-    borderWidth: 2,
-  },
-  modeLabelSmall: {
-    fontSize: 8,
-    fontWeight: 'bold',
-    color: colors.textPrimary,
-    textAlign: 'center',
-    marginTop: 2,
-  },
-  modeLabelInactive: {
-    color: colors.textMuted,
-  },
   controlButton: {
-    padding: 4,
     width: 44,
     height: 44,
     justifyContent: 'center',
@@ -1453,9 +1530,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  controlButtonActive: {
+    backgroundColor: colors.primary + '15',
+    borderColor: colors.primary,
+  },
   controlIcon: {
     fontSize: 22,
     color: colors.textPrimary,
+  },
+  controlIconSmall: {
+    fontSize: 18,
+    color: colors.textPrimary,
+  },
+  controlIconActive: {
+    color: colors.primary,
   },
   playButton: {
     backgroundColor: colors.primary,
@@ -1685,6 +1773,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: colors.background,
+  },
+  inlinePlaylistContainer: {
+    padding: 12,
+    backgroundColor: colors.backgroundSecondary,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  inlinePlaylistList: {
+    maxHeight: 250, // Restrict height so controls are visible
   },
 });
 

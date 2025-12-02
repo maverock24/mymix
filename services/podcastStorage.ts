@@ -358,12 +358,12 @@ export class PodcastStorageService {
       }
 
       const fileName = `podcast_${podcastId}_${episode.id}.mp3`;
-      const localUri = `${FileSystem.documentDirectory}podcasts/${fileName}`;
+      const localUri = `${(FileSystem as any).documentDirectory}podcasts/${fileName}`;
 
       // Ensure directory exists
-      const dirInfo = await FileSystem.getInfoAsync(`${FileSystem.documentDirectory}podcasts`);
+      const dirInfo = await FileSystem.getInfoAsync(`${(FileSystem as any).documentDirectory}podcasts`);
       if (!dirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(`${FileSystem.documentDirectory}podcasts`, { intermediates: true });
+        await FileSystem.makeDirectoryAsync(`${(FileSystem as any).documentDirectory}podcasts`, { intermediates: true });
       }
 
       // Download the file

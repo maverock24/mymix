@@ -16,6 +16,7 @@ import {
 import { Audio, AVPlaybackStatus } from 'expo-av';
 import Slider from '@react-native-community/slider';
 import { colors } from '../theme/colors';
+import { playbackCoordinator } from '../services/playbackCoordinator';
 import {
   PodcastStorageService,
   Podcast,
@@ -96,6 +97,24 @@ export const PodcastScreen: React.FC = () => {
   const sleepTimerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastPauseTime = useRef<number | null>(null);
   const autoRewindApplied = useRef(false);
+  const soundRef = useRef<Audio.Sound | null>(null);
+
+  // Keep sound ref updated
+  useEffect(() => {
+    soundRef.current = sound;
+  }, [sound]);
+
+  // Register with PlaybackCoordinator
+  useEffect(() => {
+    const id = 'podcast-player';
+    return playbackCoordinator.register(id, 'podcast', async () => {
+      if (soundRef.current) {
+        console.log('[Podcast] Pausing due to coordinator request');
+        await soundRef.current.pauseAsync();
+        setIsPlaying(false);
+      }
+    });
+  }, []);
 
   // Initialize
   useEffect(() => {
@@ -236,17 +255,16 @@ export const PodcastScreen: React.FC = () => {
     } catch (error) {
       console.error('Error searching podcasts:', error);
       setSearchResults([]);
-      if (Platform.OS !== 'web') {
-        Alert.alert('Error', 'Failed to search podcasts. Please try again.');
-      }
-    } finally {
+          if ((Platform.OS as string) !== 'web') {
+            Alert.alert('Error', 'Failed to search podcasts. Please try again.');
+          }    } finally {
       setIsSearching(false);
     }
   };
 
   const handleAddPodcast = async (podcast: Podcast) => {
     if (savedPodcasts.some((p) => p.id === podcast.id)) {
-      if (Platform.OS !== 'web') {
+      if ((Platform.OS as string) !== 'web') {
         Alert.alert('Info', 'This podcast is already in your library');
       }
       return;
@@ -260,12 +278,12 @@ export const PodcastScreen: React.FC = () => {
       setSearchResults([]);
       setShowSearchResults(false);
 
-      if (Platform.OS !== 'web') {
+      if ((Platform.OS as string) !== 'web') {
         Alert.alert('Success', `Added "${podcast.title}" to your library`);
       }
     } catch (error) {
       console.error('Error adding podcast:', error);
-      if (Platform.OS !== 'web') {
+      if ((Platform.OS as string) !== 'web') {
         Alert.alert('Error', 'Failed to add podcast');
       }
     } finally {
@@ -288,7 +306,7 @@ export const PodcastScreen: React.FC = () => {
       }
     };
 
-    if (Platform.OS !== 'web') {
+    if ((Platform.OS as string) !== 'web') {
       Alert.alert('Remove Podcast', `Remove "${title}"?`, [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Remove', style: 'destructive', onPress: doRemove },
@@ -325,7 +343,7 @@ export const PodcastScreen: React.FC = () => {
       setEpisodeProgress(progress);
     } catch (error) {
       console.error('Error loading episodes:', error);
-      if (Platform.OS !== 'web') {
+      if ((Platform.OS as string) !== 'web') {
         Alert.alert('Error', 'Failed to load episodes');
       }
     } finally {
@@ -457,12 +475,15 @@ export const PodcastScreen: React.FC = () => {
       const { sound: newSound } = await Audio.Sound.createAsync(
         { uri: audioUri },
         {
-          shouldPlay: true,
+          shouldPlay: false, // Don't auto-play yet
           positionMillis: startPosition,
           rate: playbackSpeed,
           shouldCorrectPitch: true,
         }
       );
+
+      playbackCoordinator.notifyPlay('podcast');
+      await newSound.playAsync();
 
       setSound(newSound);
       setCurrentEpisode(episode);
@@ -484,7 +505,7 @@ export const PodcastScreen: React.FC = () => {
       console.error('[Podcast] Error playing episode:', error);
       setIsBuffering(false);
       const errorMsg = (error as Error).message || String(error);
-      if (Platform.OS !== 'web') {
+      if ((Platform.OS as string) !== 'web') {
         Alert.alert('Playback Error', `Failed to play episode: ${errorMsg}`);
       }
     }
@@ -605,6 +626,7 @@ export const PodcastScreen: React.FC = () => {
             autoRewindApplied.current = true;
           }
         }
+        playbackCoordinator.notifyPlay('podcast');
         await sound.playAsync();
         lastPauseTime.current = null;
       }
@@ -656,7 +678,7 @@ export const PodcastScreen: React.FC = () => {
     if (!selectedPodcast) return;
     const updated = await PodcastStorageService.addToQueue(episode, selectedPodcast);
     setQueue(updated);
-    if (Platform.OS !== 'web') {
+    if ((Platform.OS as string) !== 'web') {
       Alert.alert('Added to Queue', `"${episode.title}" added to Up Next`);
     }
   };
@@ -677,7 +699,7 @@ export const PodcastScreen: React.FC = () => {
     };
     await PodcastStorageService.saveQueue([newItem, ...currentQueue.filter(q => q.episode.id !== episode.id)]);
     loadQueue();
-    if (Platform.OS !== 'web') {
+    if ((Platform.OS as string) !== 'web') {
       Alert.alert('Play Next', `"${episode.title}" will play next`);
     }
   };
@@ -821,7 +843,7 @@ export const PodcastScreen: React.FC = () => {
       actions.push({ text: 'Mark as Played', onPress: () => handleMarkAsPlayed(episode) });
     }
 
-    if (Platform.OS !== 'web') {
+    if ((Platform.OS as string) !== 'web') {
       if (downloaded) {
         actions.push({ text: 'Remove Download', onPress: () => handleDeleteDownload(episode.id), style: 'destructive' });
       } else {

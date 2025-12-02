@@ -9,7 +9,8 @@ export interface Track {
   name: string;
   uri: string;
   duration?: number;
-  data?: Blob; // For web only
+  data?: Blob; // For legacy/fallback (store full file)
+  fileHandle?: FileSystemFileHandle | any; // For optimized folder loading
   type: string;
 }
 
@@ -60,9 +61,87 @@ const playerStateStore = localforage.createInstance({
   storeName: 'playerState',
 });
 
+const presetsStore = localforage.createInstance({
+  name: 'mymix',
+  storeName: 'presets',
+});
+
 const PLAYLISTS_KEY = '@mymix_playlists';
 const PLAYER_STATE_KEY = '@mymix_player_state';
 const PRESETS_KEY = '@mymix_presets';
+const MAX_WEB_STORAGE_BYTES = 500 * 1024 * 1024; // 500MB limit
+
+const getPlaylistSize = (playlist: Playlist): number => {
+  let size = 0;
+  if (playlist.tracks) {
+    playlist.tracks.forEach(track => {
+      if (track.data) {
+        size += track.data.size;
+      }
+      // fileHandle takes negligible space in storage
+    });
+  }
+  return size;
+};
+
+const getPresetSize = (preset: Preset): number => {
+  let size = 0;
+  if (preset.playlist1) size += getPlaylistSize(preset.playlist1);
+  if (preset.playlist2) size += getPlaylistSize(preset.playlist2);
+  return size;
+};
+
+const enforceWebStorageLimit = async (requiredBytes: number): Promise<void> => {
+  if (Platform.OS !== 'web') return;
+
+  let totalSize = 0;
+  const items: { id: string; size: number; lastUsed: number; type: 'playlist' | 'preset' }[] = [];
+
+  // Count Playlists
+  await playlistStore.iterate((playlist: Playlist) => {
+    const size = getPlaylistSize(playlist);
+    totalSize += size;
+    items.push({
+      id: playlist.id,
+      size,
+      lastUsed: playlist.lastPlayed || playlist.createdAt,
+      type: 'playlist',
+    });
+  });
+
+  // Count Presets
+  await presetsStore.iterate((preset: Preset) => {
+    const size = getPresetSize(preset);
+    totalSize += size;
+    items.push({
+      id: preset.id,
+      size,
+      lastUsed: preset.lastUsed || preset.createdAt,
+      type: 'preset',
+    });
+  });
+
+  if (totalSize + requiredBytes > MAX_WEB_STORAGE_BYTES) {
+    // Sort by lastUsed (oldest first)
+    items.sort((a, b) => a.lastUsed - b.lastUsed);
+
+    let deletedSize = 0;
+    for (const item of items) {
+      if (totalSize - deletedSize + requiredBytes <= MAX_WEB_STORAGE_BYTES) {
+        break;
+      }
+      
+      if (item.type === 'playlist') {
+        await playlistStore.removeItem(item.id);
+      } else {
+        await presetsStore.removeItem(item.id);
+      }
+      
+      deletedSize += item.size;
+      console.log(`[Storage] Evicted ${item.type} ${item.id} to free up ${item.size} bytes`);
+    }
+  }
+};
 
 export const StorageService = {
   // Playlist Management
@@ -75,6 +154,8 @@ export const StorageService = {
       };
 
       if (Platform.OS === 'web') {
+        const newSize = getPlaylistSize(newPlaylist);
+        await enforceWebStorageLimit(newSize);
         await playlistStore.setItem(newPlaylist.id, newPlaylist);
       } else {
         const allPlaylists = await this.getAllPlaylists();
@@ -233,10 +314,8 @@ export const StorageService = {
       }
 
       if (Platform.OS === 'web') {
-        const presetsStore = localforage.createInstance({
-          name: 'mymix',
-          storeName: 'presets',
-        });
+        const newSize = getPresetSize(preset);
+        await enforceWebStorageLimit(newSize);
         await presetsStore.setItem(preset.id, preset);
       } else {
         const updatedPresets = allPresets.filter(p => p.id !== preset.id);
@@ -255,10 +334,6 @@ export const StorageService = {
   async getAllPresets(): Promise<Preset[]> {
     try {
       if (Platform.OS === 'web') {
-        const presetsStore = localforage.createInstance({
-          name: 'mymix',
-          storeName: 'presets',
-        });
         const presets: Preset[] = [];
         await presetsStore.iterate((value: Preset) => {
           presets.push(value);
@@ -279,10 +354,6 @@ export const StorageService = {
   async getPreset(id: string): Promise<Preset | null> {
     try {
       if (Platform.OS === 'web') {
-        const presetsStore = localforage.createInstance({
-          name: 'mymix',
-          storeName: 'presets',
-        });
         return await presetsStore.getItem<Preset>(id);
       } else {
         const allPresets = await this.getAllPresets();
@@ -297,10 +368,6 @@ export const StorageService = {
   async deletePreset(id: string): Promise<void> {
     try {
       if (Platform.OS === 'web') {
-        const presetsStore = localforage.createInstance({
-          name: 'mymix',
-          storeName: 'presets',
-        });
         await presetsStore.removeItem(id);
       } else {
         const allPresets = await this.getAllPresets();
@@ -317,10 +384,6 @@ export const StorageService = {
   async updatePresetLastUsed(id: string): Promise<void> {
     try {
       if (Platform.OS === 'web') {
-        const presetsStore = localforage.createInstance({
-          name: 'mymix',
-          storeName: 'presets',
-        });
         const preset = await presetsStore.getItem<Preset>(id);
         if (preset) {
           preset.lastUsed = Date.now();

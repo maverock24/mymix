@@ -5,7 +5,7 @@ let MediaControl: any = null;
 let PlaybackState: any = null;
 let Command: any = null;
 
-if (Platform.OS !== 'web') {
+if ((Platform.OS as string) !== 'web') {
   try {
     const mediaControlModule = require('expo-media-control');
     MediaControl = mediaControlModule.MediaControl;

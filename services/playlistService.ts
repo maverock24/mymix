@@ -56,38 +56,30 @@ export class PlaylistService {
               mode: 'read',
             });
 
-            console.log('[PlaylistService] Directory selected, reading files...');
+            console.log('[PlaylistService] Directory selected, scanning files...');
             const tracks: Track[] = [];
             let index = 0;
 
             // Recursively read all audio files from directory
+            // Note: This handles flat directory. For nested, we'd need a recursive function.
+            // Current implementation in original code seemed flat too (dirHandle.values()).
             for await (const entry of dirHandle.values()) {
               if (entry.kind === 'file') {
-                const file = await entry.getFile();
-                console.log('[PlaylistService] Found file:', file.name, 'type:', file.type);
-
-                if (this.isAudioFile(file.name)) {
-                  console.log('[PlaylistService] Processing audio file:', file.name);
-
-                  // Create blob URL for the file
-                  const blob = new Blob([await file.arrayBuffer()], { type: file.type });
-                  const blobUrl = URL.createObjectURL(blob);
-
+                if (this.isAudioFile(entry.name)) {
+                  // Store handle only - NO CONTENT READING
                   tracks.push({
                     id: `track_${Date.now()}_${index}`,
-                    name: file.name,
-                    uri: blobUrl,
-                    type: file.type || this.getMimeTypeFromUri(file.name),
-                    data: blob, // Store blob for web
+                    name: entry.name,
+                    uri: '', // Will be generated on demand
+                    type: this.getMimeTypeFromUri(entry.name),
+                    fileHandle: entry, // Store handle for lazy loading
                   });
                   index++;
-                } else {
-                  console.log('[PlaylistService] Skipping non-audio file:', file.name);
                 }
               }
             }
 
-            console.log('[PlaylistService] Loaded', tracks.length, 'tracks from folder');
+            console.log('[PlaylistService] Found', tracks.length, 'tracks (metadata only)');
             const sortedTracks = tracks.sort((a, b) => a.name.localeCompare(b.name));
 
             return {
