@@ -10,6 +10,9 @@ import {
   Modal,
   TextInput,
   Alert,
+  Animated,
+  Easing,
+  Dimensions,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import Slider from '@react-native-community/slider';
@@ -20,6 +23,89 @@ import { colors } from '../theme/colors';
 import { playbackCoordinator } from '../services/playbackCoordinator';
 
 type SortOption = 'default' | 'title' | 'artist' | 'duration';
+
+const ScrollingText = ({ text, isPlaying, style }: { text: string, isPlaying: boolean, style: any }) => {
+  const [textWidth, setTextWidth] = useState(0);
+  const containerWidth = useRef(Dimensions.get('window').width - 100).current; // Approximate container width
+  const animatedValue = useRef(new Animated.Value(0)).current;
+  const scrollAnimation = useRef<Animated.CompositeAnimation | null>(null);
+
+  useEffect(() => {
+    if (!isPlaying || textWidth <= containerWidth) {
+      animatedValue.setValue(0);
+      scrollAnimation.current?.stop();
+      return;
+    }
+
+    const duration = textWidth * 30; // Adjust speed here
+
+    const startAnimation = () => {
+      animatedValue.setValue(0);
+      scrollAnimation.current = Animated.loop(
+        Animated.timing(animatedValue, {
+          toValue: -textWidth - 50, // Scroll past width + padding
+          duration: duration,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        })
+      );
+      scrollAnimation.current.start();
+    };
+
+    startAnimation();
+
+    return () => {
+      scrollAnimation.current?.stop();
+    };
+  }, [text, textWidth, isPlaying, containerWidth]);
+
+  return (
+    <View style={{ overflow: 'hidden', flex: 1, flexDirection: 'row' }}>
+      <Animated.Text
+        style={[
+          style,
+          {
+            transform: [{ translateX: animatedValue }],
+            width: textWidth > containerWidth ? undefined : '100%',
+             paddingRight: 50, // Gap between looping text
+          },
+        ]}
+        onLayout={(e) => {
+             if (textWidth === 0) {
+                // Only measure once or if text changes (key should handle that)
+             }
+        }}
+      >
+        {text}
+      </Animated.Text>
+      {/* Duplicate text for looping effect if needed */}
+      {textWidth > containerWidth && (
+          <Animated.Text
+            style={[
+              style,
+              {
+                  transform: [{ translateX: animatedValue }],
+                  paddingRight: 50,
+                  position: 'absolute',
+                  left: textWidth + 50, // Start after first text + padding
+                  width: 1000
+              },
+            ]}
+          >
+            {text}
+          </Animated.Text>
+      )}
+
+      {/* Hidden text to measure actual width */}
+       <Text 
+        style={[style, { position: 'absolute', opacity: 0, width: undefined }]}
+        onLayout={(e) => setTextWidth(e.nativeEvent.layout.width)}
+      >
+        {text}
+      </Text>
+    </View>
+  );
+};
 
 interface SinglePlayerProps {
   playlist: Playlist | null;
@@ -66,11 +152,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   const [pointA, setPointA] = useState<number | null>(null);
   const [pointB, setPointB] = useState<number | null>(null);
 
-  // Crossfade state
-  const [crossfadeEnabled, setCrossfadeEnabled] = useState(false);
-  const [crossfadeDuration, setCrossfadeDuration] = useState(3000); // 3 seconds default
-  const [isCrossfading, setIsCrossfading] = useState(false);
-
   // Search and Sort state
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOption, setSortOption] = useState<SortOption>('default');
@@ -80,14 +161,10 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   // Favorites state
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
 
-  // Settings modal
-  const [showSettings, setShowSettings] = useState(false);
-
   const lastPositionUpdate = useRef(0);
   const POSITION_UPDATE_INTERVAL = 500;
   const blobUrl = useRef<string | null>(null);
   const isInitialLoad = useRef(true);
-  const crossfadeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentTrack = playlist?.tracks[currentTrackIndex];
 
@@ -269,25 +346,19 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     }
   }, [position, abRepeatActive, pointA, pointB, sound]);
 
-  // Crossfade detection
-  useEffect(() => {
-    if (
-      crossfadeEnabled &&
-      !isCrossfading &&
-      duration > 0 &&
-      position > 0 &&
-      duration - position <= crossfadeDuration &&
-      isPlaying
-    ) {
-      handleCrossfade();
-    }
-  }, [position, duration, crossfadeEnabled, isCrossfading, isPlaying, crossfadeDuration]);
+
 
   // Media control event handlers - using refs to avoid stale closures
   const togglePlayPauseRef = useRef<(() => Promise<void>) | null>(null);
   const handleNextRef = useRef<(() => void) | null>(null);
   const handlePreviousRef = useRef<(() => void) | null>(null);
   const soundRef = useRef(sound);
+  
+  // Refs to avoid stale closures in onPlaybackStatusUpdate
+  const handleTrackFinishRef = useRef<(() => void) | null>(null);
+
+
+
 
   // Initialize media controls (only for the active media control player)
   useEffect(() => {
@@ -471,7 +542,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       setAbRepeatActive(false);
       setPointA(null);
       setPointB(null);
-      setIsCrossfading(false);
+
 
       if (isInitialLoad.current && initialState?.position) {
         try {
@@ -519,88 +590,24 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
           lastPositionUpdate.current = now;
         }
 
-        if (status.durationMillis && status.durationMillis !== duration) {
+        if (status.durationMillis) {
           setDuration(status.durationMillis);
         }
 
-        if (status.didJustFinish && !isCrossfading) {
-          handleTrackFinish();
+        if (status.didJustFinish) {
+          if (handleTrackFinishRef.current) {
+             handleTrackFinishRef.current();
+          }
         }
         
         // Sync isPlaying state if it changes externally (e.g. interruption)
-        if (status.isPlaying !== isPlaying) {
-          setIsPlaying(status.isPlaying);
-        }
+        setIsPlaying(status.isPlaying);
       }
     },
-    [duration, isCrossfading, isPlaying]
+    []
   );
 
-  const handleCrossfade = async () => {
-    const visibleTracks = getFilteredSortedTracks();
-    if (visibleTracks.length === 0 || isCrossfading) return;
 
-    const currentVisibleIndex = visibleTracks.findIndex(t => t.originalIndex === currentTrackIndex);
-    
-    // If current track is not in visible list (e.g. hidden by filter), we can still crossfade to the first visible track
-    // or just let it finish. Let's allow it to transition to the first visible track for continuity.
-    
-    let nextVisibleIndex = -1;
-
-    if (shuffle) {
-        nextVisibleIndex = Math.floor(Math.random() * visibleTracks.length);
-        if (visibleTracks.length > 1 && nextVisibleIndex === currentVisibleIndex) {
-            nextVisibleIndex = (nextVisibleIndex + 1) % visibleTracks.length;
-        }
-    } else {
-        if (repeat === 'one') {
-            // If repeating one, we don't crossfade, we just repeat. 
-            // But crossfade logic implies transition. 
-            // Usually crossfade is disabled for repeat one, or it fades into itself?
-            // Let's skip crossfade for repeat one to be safe, or fade into itself.
-            // For now, let's disable crossfade for repeat 'one' to avoid complexity.
-            return; 
-        } else if (currentVisibleIndex < visibleTracks.length - 1) {
-            nextVisibleIndex = currentVisibleIndex + 1;
-        } else if (repeat === 'all') {
-            nextVisibleIndex = 0;
-        }
-    }
-
-    if (nextVisibleIndex === -1) return;
-
-    const nextTrack = visibleTracks[nextVisibleIndex];
-    const nextIndex = nextTrack.originalIndex;
-
-    if (nextIndex === undefined) return;
-
-    setIsCrossfading(true);
-
-    // Start fading out current track
-    const fadeSteps = 10;
-    const stepDuration = crossfadeDuration / fadeSteps;
-    const volumeStep = volume / fadeSteps;
-
-    for (let i = 0; i < fadeSteps; i++) {
-      await new Promise(resolve => setTimeout(resolve, stepDuration));
-      if (sound) {
-        const newVol = Math.max(0, volume - volumeStep * (i + 1));
-        await sound.setVolumeAsync(newVol);
-      }
-    }
-
-    // Load next track
-    setShouldAutoPlay(true);
-    setCurrentTrackIndex(nextIndex);
-    setPosition(0);
-
-    // Restore volume
-    if (sound) {
-      await sound.setVolumeAsync(volume);
-    }
-
-    setIsCrossfading(false);
-  };
 
   const handleTrackFinish = () => {
     const visibleTracks = getFilteredSortedTracks();
@@ -686,6 +693,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   useEffect(() => {
     togglePlayPauseRef.current = togglePlayPause;
     soundRef.current = sound;
+    handleTrackFinishRef.current = handleTrackFinish;
   });
 
   const handleNext = () => {
@@ -805,6 +813,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   };
 
   const selectTrack = (index: number) => {
+    setShouldAutoPlay(true);
     setCurrentTrackIndex(index);
     setPosition(0);
     setShowPlaylist(false);
@@ -888,10 +897,30 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.playerLabel}>{playerNumber === 1 ? 'Main' : 'Background'}</Text>
+        
+        {playlist ? (
+            <View style={styles.headerSearchContainer}>
+              <TextInput
+                style={styles.headerSearchInput}
+                placeholder={showFavoritesOnly ? "Search favorites..." : "Search tracks..."}
+                placeholderTextColor={colors.textMuted}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              <TouchableOpacity
+                style={[styles.headerFavoriteButton, showFavoritesOnly && styles.headerFavoriteButtonActive]}
+                onPress={() => setShowFavoritesOnly(!showFavoritesOnly)}
+              >
+                <Text style={[styles.headerFavoriteIcon, showFavoritesOnly && styles.headerFavoriteIconActive]}>
+                  {showFavoritesOnly ? '★' : '☆'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+        ) : (
+            <View style={{flex: 1}} />
+        )}
+
         <View style={styles.headerButtons}>
-          <TouchableOpacity onPress={() => setShowSettings(true)} style={styles.settingsButton}>
-            <Text style={styles.settingsButtonText}>⚙️</Text>
-          </TouchableOpacity>
           <TouchableOpacity onPress={onLoadPlaylist} style={styles.loadButton}>
             <Text style={styles.loadButtonText}>📁</Text>
           </TouchableOpacity>
@@ -901,37 +930,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       {/* Inline Playlist for Player 1 */}
       {playerNumber === 1 && playlist && (
         <View style={styles.inlinePlaylistContainer}>
-            {/* Search and Sort Bar for Inline Playlist */}
-            <View style={styles.searchSortBar}>
-              <TextInput
-                style={styles.searchInput}
-                placeholder={showFavoritesOnly ? "Search favorites..." : "Search tracks..."}
-                placeholderTextColor={colors.textMuted}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-              />
-              <TouchableOpacity
-                style={[styles.sortButton, showFavoritesOnly && styles.sortButtonActive]}
-                onPress={() => setShowFavoritesOnly(!showFavoritesOnly)}
-              >
-                <Text style={[styles.sortButtonText, showFavoritesOnly && styles.sortButtonTextActive]}>
-                  {showFavoritesOnly ? '★' : '☆'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.sortButton}
-                onPress={() => {
-                  const options: SortOption[] = ['default', 'title', 'artist'];
-                  const currentIndex = options.indexOf(sortOption);
-                  setSortOption(options[(currentIndex + 1) % options.length]);
-                }}
-              >
-                <Text style={styles.sortButtonText}>
-                  {sortOption === 'default' ? '⇅' : sortOption === 'title' ? 'A-Z' : '🎤'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
             <FlatList
               data={getFilteredSortedTracks()}
               renderItem={renderPlaylistItem}
@@ -991,9 +989,11 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
               {/* Track Info */}
               <View style={styles.trackInfo}>
                 <View style={styles.trackTitleRow}>
-                  <Text style={styles.trackTitle} numberOfLines={1}>
-                    {trackInfo.title}
-                  </Text>
+                  <ScrollingText 
+                    text={trackInfo.title} 
+                    isPlaying={isPlaying} 
+                    style={styles.trackTitle} 
+                  />
                   {currentTrack && (
                     <TouchableOpacity
                       onPress={() => toggleFavorite(currentTrack.id)}
@@ -1005,14 +1005,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                     </TouchableOpacity>
                   )}
                 </View>
-                {trackInfo.artist && (
-                  <Text style={styles.trackArtist} numberOfLines={1}>
-                    {trackInfo.artist}
-                  </Text>
-                )}
-                <Text style={styles.playlistInfo}>
-                  {currentTrackIndex + 1} / {playlist.tracks.length}
-                </Text>
               </View>
 
               {/* Progress Bar with AB Repeat markers */}
@@ -1197,18 +1189,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                   {showFavoritesOnly ? '★' : '☆'}
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.sortButton}
-                onPress={() => {
-                  const options: SortOption[] = ['default', 'title', 'artist'];
-                  const currentIndex = options.indexOf(sortOption);
-                  setSortOption(options[(currentIndex + 1) % options.length]);
-                }}
-              >
-                <Text style={styles.sortButtonText}>
-                  {sortOption === 'default' ? '⇅' : sortOption === 'title' ? 'A-Z' : '🎤'}
-                </Text>
-              </TouchableOpacity>
             </View>
 
             <FlatList
@@ -1228,65 +1208,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
           </View>
         </TouchableOpacity>
       </Modal>
-
-      {/* Settings Modal */}
-      <Modal
-        visible={showSettings}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowSettings(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowSettings(false)}
-        >
-          <View style={styles.settingsModal} onStartShouldSetResponder={() => true}>
-            <Text style={styles.settingsTitle}>Player Settings</Text>
-            <Text style={styles.settingsSubtitle}>Player {playerNumber}</Text>
-
-            {/* Crossfade Setting */}
-            <View style={styles.settingRow}>
-              <View style={styles.settingInfo}>
-                <Text style={styles.settingLabel}>Crossfade</Text>
-                <Text style={styles.settingDescription}>
-                  Smooth transition between tracks
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={[styles.toggle, crossfadeEnabled && styles.toggleActive]}
-                onPress={() => setCrossfadeEnabled(!crossfadeEnabled)}
-              >
-                <View style={[styles.toggleThumb, crossfadeEnabled && styles.toggleThumbActive]} />
-              </TouchableOpacity>
-            </View>
-
-            {crossfadeEnabled && (
-              <View style={styles.settingRow}>
-                <Text style={styles.settingLabel}>Crossfade Duration: {crossfadeDuration / 1000}s</Text>
-                <Slider
-                  style={styles.durationSlider}
-                  minimumValue={1000}
-                  maximumValue={10000}
-                  step={1000}
-                  value={crossfadeDuration}
-                  onValueChange={(v) => setCrossfadeDuration(v)}
-                  minimumTrackTintColor={colors.primary}
-                  maximumTrackTintColor={colors.border}
-                  thumbTintColor={colors.primary}
-                />
-              </View>
-            )}
-
-            <TouchableOpacity
-              style={styles.closeSettingsButton}
-              onPress={() => setShowSettings(false)}
-            >
-              <Text style={styles.closeSettingsButtonText}>Done</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
     </View>
   );
 });
@@ -1300,37 +1221,63 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     padding: 10,
     backgroundColor: colors.backgroundSecondary,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    gap: 12,
   },
   playerLabel: {
     fontSize: 16,
     fontWeight: 'bold',
     color: colors.textPrimary,
   },
+  headerSearchContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerSearchInput: {
+    flex: 1,
+    backgroundColor: colors.backgroundTertiary,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 0,
+    height: 36,
+    fontSize: 14,
+    color: colors.textPrimary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  headerFavoriteButton: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.backgroundTertiary,
+  },
+  headerFavoriteButtonActive: {
+    backgroundColor: colors.primary + '20',
+    borderColor: colors.primary,
+  },
+  headerFavoriteIcon: {
+    fontSize: 20,
+    color: colors.textPrimary,
+  },
+  headerFavoriteIconActive: {
+    color: colors.primary,
+  },
   headerButtons: {
     flexDirection: 'row',
     gap: 8,
   },
-  settingsButton: {
-    backgroundColor: colors.backgroundSecondary,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  settingsButtonText: {
-    fontSize: 16,
-  },
   loadButton: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.background,
     width: 36,
     height: 36,
     borderRadius: 18,
@@ -1339,6 +1286,7 @@ const styles = StyleSheet.create({
   },
   loadButtonText: {
     fontSize: 18,
+    color: colors.textPrimary,
   },
   playlistSection: {
     borderBottomWidth: 1,
@@ -1373,13 +1321,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary + '20',
   },
   playlistIndex: {
-    fontSize: 12,
+    fontSize: 10,
     color: colors.textMuted,
     width: 28,
   },
   playlistItemText: {
     flex: 1,
-    fontSize: 18, // Made even bigger
+    fontSize: 15,
     color: colors.textPrimary,
   },
   activePlaylistItemText: {
@@ -1391,7 +1339,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   favoriteIcon: {
-    fontSize: 22, // Bigger star icon
+    fontSize: 20,
     color: colors.textMuted,
   },
   favoriteIconActive: {
@@ -1463,13 +1411,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    width: '100%',
+    paddingHorizontal: 20,
   },
   trackTitle: {
     fontSize: 14,
     fontWeight: 'bold',
     color: colors.textPrimary,
     marginBottom: 4,
-    textAlign: 'center',
   },
   trackFavoriteButton: {
     padding: 4,
@@ -1562,7 +1511,7 @@ const styles = StyleSheet.create({
   adjustButtonSmall: {
     width: 38, // Bigger
     height: 38, // Bigger
-    backgroundColor: colors.primary,
+    backgroundColor: colors.backgroundSecondary,
     borderRadius: 8, // Adjust for new size
     alignItems: 'center',
     justifyContent: 'center',
@@ -1570,7 +1519,7 @@ const styles = StyleSheet.create({
   adjustButtonText: {
     fontSize: 20, // Bigger
     fontWeight: 'bold',
-    color: colors.background,
+    color: colors.textSecondary,
     lineHeight: 20, // Adjust for new font size
   },
   valueDisplayCompact: {
@@ -1585,7 +1534,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   valueLabel: {
-    fontSize: 8,
+    fontSize: 12,
     color: colors.textSecondary,
     fontWeight: '600',
     marginBottom: 1,
@@ -1603,10 +1552,10 @@ const styles = StyleSheet.create({
     height: 50,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.backgroundSecondary,
+    backgroundColor: colors.background, // Changed to black
     borderRadius: 0,
     borderWidth: 2, // Thicker border
-    borderColor: colors.border,
+    borderColor: colors.background, // Changed to black
     transform: [{ skewX: '-30deg' }], // More aggressive slant
   },
   controlButtonActive: {
@@ -1615,7 +1564,7 @@ const styles = StyleSheet.create({
   },
   controlIcon: {
     fontSize: 24,
-    color: colors.textPrimary,
+    color: colors.skipButtonAccent,
     transform: [{ skewX: '30deg' }], // Counter-slant icon
   },
   controlIconSmall: {
@@ -1627,25 +1576,25 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   playButton: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.background,
     borderRadius: 0, // Sharp corners
     width: 72,
     height: 72,
     justifyContent: 'center',
     alignItems: 'center',
     marginHorizontal: 8,
-    shadowColor: colors.primary,
+    shadowColor: colors.primary, // Keep shadow primary for effect
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 5,
     borderWidth: 3, // Thicker border for prominence
-    borderColor: colors.primary, // Define border color explicitly
+    borderColor: colors.background, // Match background
     transform: [{ skewX: '-30deg' }], // More aggressive slant
   },
   playIcon: {
     fontSize: 36,
-    color: colors.background,
+    color: colors.primary,
     transform: [{ skewX: '30deg' }], // Counter-slant icon
   },
   extraControlsRow: {
@@ -1873,7 +1822,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   inlinePlaylistList: {
-    maxHeight: 250, // Restrict height so controls are visible
+    maxHeight: 400, // Restrict height so controls are visible
   },
 });
 

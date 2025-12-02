@@ -36,4 +36,5 @@ export const colors = {
 
   // Accent
   accent: '#FF003C', // Neon Pink
+  skipButtonAccent: '#F715AB',
 };

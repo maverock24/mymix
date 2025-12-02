@@ -1,6 +1,6 @@
 import React from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { MainPlayerScreen } from './screens/MainPlayerScreen';
@@ -29,7 +29,7 @@ export default function App() {
               height: 60,
             },
             tabBarActiveTintColor: colors.primary,
-            tabBarInactiveTintColor: colors.textMuted,
+            tabBarInactiveTintColor: colors.textSecondary,
             tabBarLabelStyle: {
               fontSize: 12,
               fontWeight: '600',
@@ -41,6 +41,11 @@ export default function App() {
             component={MainPlayerScreen}
             options={{
               tabBarLabel: 'MyMix',
+              tabBarIcon: ({ color, size }) => (
+                <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color, fontSize: 28 }}>🎵</Text>
+                </View>
+              ),
             }}
           />
           <Tab.Screen
@@ -48,6 +53,11 @@ export default function App() {
             component={PodcastScreen}
             options={{
               tabBarLabel: 'Podcasts',
+              tabBarIcon: ({ color, size }) => (
+                <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color, fontSize: 28 }}>🎙️</Text>
+                </View>
+              ),
             }}
           />
         </Tab.Navigator>

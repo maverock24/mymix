@@ -503,26 +503,6 @@ export const MainPlayerScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
         </View>
-
-        {/* Preset Name Input */}
-        <View style={styles.presetInputWrapper}>
-          <View style={styles.presetNameContainer}>
-            <Text style={styles.presetNameIcon}>💾</Text>
-            <TextInput
-              style={styles.presetNameInput}
-              placeholder="Name this mix..."
-              placeholderTextColor={colors.textMuted}
-              value={presetName}
-              onChangeText={handlePresetNameChange}
-            />
-            {presetName.trim() ? (
-              <View style={styles.saveStatusContainer}>
-                <Text style={styles.autoSaveText}>Saved</Text>
-                <Text style={styles.autoSaveIndicator}>✓</Text>
-              </View>
-            ) : null}
-          </View>
-        </View>
       </View>
 
       {isLoadingInitialState ? (
@@ -573,6 +553,27 @@ export const MainPlayerScreen: React.FC = () => {
           <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
             <Text style={styles.modalTitle}>Menu</Text>
             
+            {/* Preset Name Input - Moved inside Menu */}
+            <View style={styles.menuPresetInputWrapper}>
+               <Text style={styles.menuLabel}>Name the Mix</Text>
+               <View style={styles.presetNameContainer}>
+                <Text style={styles.presetNameIcon}>💾</Text>
+                <TextInput
+                  style={styles.presetNameInput}
+                  placeholder="Name this mix..."
+                  placeholderTextColor={colors.textMuted}
+                  value={presetName}
+                  onChangeText={handlePresetNameChange}
+                />
+                {presetName.trim() ? (
+                  <View style={styles.saveStatusContainer}>
+                    <Text style={styles.autoSaveText}>Saved</Text>
+                    <Text style={styles.autoSaveIndicator}>✓</Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+
             <View style={styles.menuSection}>
               <Text style={styles.menuLabel}>App Version</Text>
               <Text style={styles.menuValue}>Build: {BUILD_DATE}</Text>
@@ -778,6 +779,7 @@ const styles = StyleSheet.create({
   },
   headerActionIcon: {
     fontSize: 20,
+    color: colors.textPrimary,
   },
   presetsBadge: {
     position: 'absolute',
@@ -862,6 +864,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+  },
+  menuPresetInputWrapper: {
+    marginBottom: 20,
+    width: '100%',
   },
   menuSection: {
     backgroundColor: colors.backgroundSecondary,
