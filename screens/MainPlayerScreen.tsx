@@ -41,6 +41,7 @@ export const MainPlayerScreen: React.FC = () => {
   const [isLoadingPreset, setIsLoadingPreset] = useState(false);
   const [isLoadingInitialState, setIsLoadingInitialState] = useState(true);
   const [isLinked, setIsLinked] = useState(true);
+  const [storageUsage, setStorageUsage] = useState<{ used: number; quota: number } | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const player1Ref = useRef<SinglePlayerRef>(null);
@@ -51,7 +52,21 @@ export const MainPlayerScreen: React.FC = () => {
   useEffect(() => {
     loadSavedState();
     loadPresets();
+    loadStorageUsage();
   }, []);
+
+  const loadStorageUsage = async () => {
+    const usage = await StorageService.getStorageUsage();
+    setStorageUsage(usage);
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
 
   const loadPresets = async () => {
     const presets = await StorageService.getAllPresets();
@@ -62,11 +77,6 @@ export const MainPlayerScreen: React.FC = () => {
   useEffect(() => {
     const unsubscribe = sleepTimer.addListener((state) => {
       setSleepTimerState(state);
-
-      // Check if timer completed while we weren't listening
-      if (state.isActive && state.remainingSeconds <= 0) {
-        handleSleepTimerComplete();
-      }
     });
 
     return () => {
@@ -81,11 +91,6 @@ export const MainPlayerScreen: React.FC = () => {
         // Check timer state when app becomes active
         const currentState = sleepTimer.getState();
         setSleepTimerState(currentState);
-
-        // If timer should have completed, trigger completion
-        if (currentState.isActive && currentState.remainingSeconds <= 0) {
-          handleSleepTimerComplete();
-        }
       }
     });
 
@@ -94,22 +99,14 @@ export const MainPlayerScreen: React.FC = () => {
     };
   }, []);
 
-  // Handle sleep timer completion - pause both players
-  const handleSleepTimerComplete = useCallback(async () => {
-    try {
-      // Pause both players
-      await Promise.all([
-        player1Ref.current?.pause(),
-        player2Ref.current?.pause(),
-      ]);
 
-      if ((Platform.OS as string) !== 'web') {
-        Alert.alert('Sleep Timer', 'Sleep timer finished - playback stopped');
-      }
-    } catch (error) {
-      console.error('Error pausing players:', error);
+  useEffect(() => {
+    if (showMenu) {
+      loadStorageUsage();
     }
-  }, []);
+  }, [showMenu]);
+
+  // Handle sleep timer completion - pause both players
 
   const loadSavedState = async () => {
     try {
@@ -273,7 +270,7 @@ export const MainPlayerScreen: React.FC = () => {
   );
 
   const handleStartSleepTimer = (minutes: SleepTimerDuration) => {
-    sleepTimer.start(minutes, handleSleepTimerComplete);
+    sleepTimer.start(minutes);
     setShowSleepTimerModal(false);
     if ((Platform.OS as string) !== 'web') {
       Alert.alert('Sleep Timer', `Timer set for ${minutes} minutes`);
@@ -578,6 +575,19 @@ export const MainPlayerScreen: React.FC = () => {
               <Text style={styles.menuLabel}>App Version</Text>
               <Text style={styles.menuValue}>Build: {BUILD_DATE}</Text>
             </View>
+
+            {storageUsage && (
+              <View style={styles.menuSection}>
+                <Text style={styles.menuLabel}>Storage Usage</Text>
+                <Text style={styles.menuValue}>
+                  {formatBytes(storageUsage.used)}
+                  {storageUsage.quota > 0 ? ` / ${formatBytes(storageUsage.quota)}` : ''}
+                </Text>
+                {Platform.OS === 'web' && (
+                  <Text style={styles.menuSubtext}>Includes IndexedDB & Cache</Text>
+                )}
+              </View>
+            )}
 
             <TouchableOpacity
               style={styles.updateButton}
@@ -887,6 +897,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: colors.textPrimary,
+  },
+  menuSubtext: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 4,
   },
   updateButton: {
     backgroundColor: colors.primary,

@@ -69,7 +69,7 @@ const presetsStore = localforage.createInstance({
 const PLAYLISTS_KEY = '@mymix_playlists';
 const PLAYER_STATE_KEY = '@mymix_player_state';
 const PRESETS_KEY = '@mymix_presets';
-const MAX_WEB_STORAGE_BYTES = 500 * 1024 * 1024; // 500MB limit
+const MAX_WEB_STORAGE_BYTES = 200 * 1024 * 1024; // 200MB limit
 
 const getPlaylistSize = (playlist: Playlist): number => {
   let size = 0;
@@ -455,5 +455,78 @@ export const StorageService = {
   async isFavorite(trackId: string): Promise<boolean> {
     const favorites = await this.getFavorites();
     return favorites.includes(trackId);
+  },
+
+  // Storage Usage
+  async getStorageUsage(): Promise<{ used: number; quota: number; breakdown?: any }> {
+    if (Platform.OS === 'web') {
+      if (navigator.storage && navigator.storage.estimate) {
+        try {
+          const estimate = await navigator.storage.estimate();
+          return {
+            used: estimate.usage || 0,
+            quota: estimate.quota || 0,
+          };
+        } catch (e) {
+          console.error('Error estimating storage:', e);
+        }
+      }
+      // Fallback manual count for web (only IndexedDB parts we control)
+      let totalSize = 0;
+      await playlistStore.iterate((val) => { totalSize += JSON.stringify(val).length * 2; });
+      await playerStateStore.iterate((val) => { totalSize += JSON.stringify(val).length * 2; });
+      await presetsStore.iterate((val) => { totalSize += JSON.stringify(val).length * 2; });
+      return { used: totalSize, quota: MAX_WEB_STORAGE_BYTES };
+    } else {
+      // Native: AsyncStorage + FileSystem
+      let asyncStorageSize = 0;
+      try {
+        const keys = await AsyncStorage.getAllKeys();
+        const values = await AsyncStorage.multiGet(keys);
+        values.forEach(([key, value]) => {
+          if (value) asyncStorageSize += (key.length + value.length) * 2; // approx bytes
+        });
+      } catch (e) {
+        console.error('Error checking AsyncStorage size:', e);
+      }
+
+      let fileSystemSize = 0;
+      // Only checking the specific podcast folder we created
+      /* 
+         Note: We can't easily import PodcastStorageService here due to circular deps, 
+         but we know the path is DocumentDirectory/podcasts
+      */
+      // @ts-ignore
+      const { FileSystem } = await import('expo-file-system');
+      // @ts-ignore
+      const docDir = FileSystem.documentDirectory;
+      if (docDir) {
+        try {
+          const podcastDir = `${docDir}podcasts`;
+          const info = await FileSystem.getInfoAsync(podcastDir);
+          if (info.exists && info.isDirectory) {
+             // Expo doesn't give recursive size easily, need to list
+             const files = await FileSystem.readDirectoryAsync(podcastDir);
+             for (const file of files) {
+               const fInfo = await FileSystem.getInfoAsync(`${podcastDir}/${file}`);
+               if (fInfo.exists && !fInfo.isDirectory) {
+                 fileSystemSize += fInfo.size;
+               }
+             }
+          }
+        } catch (e) {
+          // Directory might not exist or error
+        }
+      }
+
+      return {
+        used: asyncStorageSize + fileSystemSize,
+        quota: 0, // Native usually limited by device space
+        breakdown: {
+          asyncStorage: asyncStorageSize,
+          files: fileSystemSize
+        }
+      };
+    }
   },
 };

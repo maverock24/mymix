@@ -1,3 +1,5 @@
+import { playbackCoordinator } from './playbackCoordinator';
+
 export type SleepTimerDuration = 5 | 10 | 15 | 30 | 45 | 60 | 90 | 120;
 
 export interface SleepTimerState {
@@ -13,7 +15,6 @@ export class SleepTimer {
   private totalSeconds: number = 0;
   private isActive: boolean = false;
   private callbacks: Set<(state: SleepTimerState) => void> = new Set();
-  private onComplete: (() => void) | null = null;
 
   private constructor() {}
 
@@ -24,13 +25,12 @@ export class SleepTimer {
     return SleepTimer.instance;
   }
 
-  start(minutes: SleepTimerDuration, onComplete: () => void): void {
+  start(minutes: SleepTimerDuration): void {
     this.stop(); // Clear any existing timer
 
     this.totalSeconds = minutes * 60;
     this.endTime = Date.now() + (minutes * 60 * 1000); // Calculate end timestamp
     this.isActive = true;
-    this.onComplete = onComplete;
 
     this.notifyListeners();
 
@@ -64,9 +64,9 @@ export class SleepTimer {
     this.isActive = false;
     this.endTime = 0;
 
-    if (this.onComplete) {
-      this.onComplete();
-    }
+    console.log('[SleepTimer] Timer completed, pausing all playback via Coordinator');
+    // Using a unique group ID 'sleep-timer-completed' forces all other groups to pause
+    playbackCoordinator.notifyPlay('sleep-timer-completed');
 
     this.notifyListeners();
   }

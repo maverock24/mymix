@@ -145,7 +145,8 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   const [shuffle, setShuffle] = useState(initialState?.shuffle || false);
   const [shuffledIndices, setShuffledIndices] = useState<number[]>(initialState?.shuffledIndices || []);
   const [showPlaylist, setShowPlaylist] = useState(false);
-  const [shouldAutoPlay, setShouldAutoPlay] = useState(false);
+  const shouldAutoPlayRef = useRef(false);
+  const [permissionMissing, setPermissionMissing] = useState(false);
 
   // AB Repeat state
   const [abRepeatActive, setAbRepeatActive] = useState(false);
@@ -487,17 +488,9 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
 
   const loadTrack = async (track: Track) => {
     try {
+      setPermissionMissing(false);
       console.log(`[Player ${playerNumber}] Loading track:`, track.name);
       setIsLoading(true);
-
-      console.log(`[Player ${playerNumber}] Setting audio mode...`);
-      await Audio.setAudioModeAsync({
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: true,
-        shouldDuckAndroid: false,
-        interruptionModeAndroid: 2,
-        interruptionModeIOS: 2,
-      });
 
       console.log(`[Player ${playerNumber}] Unloading previous sound...`);
       await unloadSound();
@@ -516,8 +509,8 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
             console.log(`[Player ${playerNumber}] File loaded, blob size:`, file.size);
           } catch (err) {
             console.error(`[Player ${playerNumber}] Error loading file from handle:`, err);
-            // If permission is lost, we might need to handle it, but for now let it fail gracefully
-            throw new Error('Could not access file. You may need to reload the folder.');
+            setPermissionMissing(true);
+            throw new Error('Permission required to access file. Tap Play to grant.');
           }
         }
       }
@@ -562,14 +555,15 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       } else {
         setPosition(0);
 
-        if (shouldAutoPlay) {
+        if (shouldAutoPlayRef.current) {
+          shouldAutoPlayRef.current = false; // Reset immediately to prevent loops
           try {
             playbackCoordinator.notifyPlay(playbackGroupId);
             await newSound.playAsync();
             setIsPlaying(true);
-            setShouldAutoPlay(false);
           } catch (error) {
             console.error('Error auto-playing track:', error);
+            setIsPlaying(false); // Ensure state is sync
           }
         }
       }
@@ -610,8 +604,10 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
 
 
   const handleTrackFinish = () => {
+    console.log(`[Player ${playerNumber}] Track finished. Logic starting...`);
     const visibleTracks = getFilteredSortedTracks();
     if (visibleTracks.length === 0) {
+        console.log(`[Player ${playerNumber}] No visible tracks to play next.`);
         setIsPlaying(false);
         return;
     }
@@ -633,7 +629,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
             // But we need to reload it to replay it (since position is at end).
             if (currentVisibleIndex === -1) {
                  // Track hidden, but repeat one. Just replay current.
-                 setShouldAutoPlay(true);
+                 shouldAutoPlayRef.current = true;
                  setCurrentTrackIndex(currentTrackIndex); // Trigger reload
                  setPosition(0);
                  return;
@@ -648,7 +644,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
 
     if (nextVisibleIndex !== -1) {
       const nextTrack = visibleTracks[nextVisibleIndex];
-      setShouldAutoPlay(true);
+      shouldAutoPlayRef.current = true;
       setCurrentTrackIndex(nextTrack.originalIndex!);
       setPosition(0);
     } else {
@@ -656,15 +652,37 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     }
   };
 
+  const requestPermissionAndPlay = async () => {
+    if (!currentTrack || !currentTrack.fileHandle) return;
+    try {
+      // @ts-ignore - Web only API
+      const permission = await currentTrack.fileHandle.requestPermission({ mode: 'read' });
+      if (permission === 'granted') {
+        setPermissionMissing(false);
+        loadTrack(currentTrack);
+        // We might need to set shouldAutoPlayRef to true here, but loadTrack will handle it if called directly? 
+        // No, loadTrack resets it. We should set it to true.
+        shouldAutoPlayRef.current = true;
+      }
+    } catch (error) {
+      console.error('Error requesting permission:', error);
+    }
+  };
+
   const togglePlayPause = async () => {
     console.log(`[Player ${playerNumber}] togglePlayPause called. sound:`, !!sound, 'isPlaying:', isPlaying);
+
+    if (permissionMissing) {
+      await requestPermissionAndPlay();
+      return;
+    }
 
     if (!sound) {
       // If no sound but we have a playlist, try to load the first track
       const visibleTracks = getFilteredSortedTracks();
       if (visibleTracks.length > 0) {
+          shouldAutoPlayRef.current = true;
           setCurrentTrackIndex(visibleTracks[0].originalIndex!);
-          setShouldAutoPlay(true);
           return;
       }
       console.warn(`[Player ${playerNumber}] Cannot play - no sound loaded`);
@@ -719,7 +737,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     if (nextVisibleIndex !== -1) {
       const nextTrack = visibleTracks[nextVisibleIndex];
       if (isPlaying) {
-        setShouldAutoPlay(true);
+        shouldAutoPlayRef.current = true;
       }
       setCurrentTrackIndex(nextTrack.originalIndex!);
       setPosition(0);
@@ -755,7 +773,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     if (prevVisibleIndex !== -1) {
       const prevTrack = visibleTracks[prevVisibleIndex];
       if (isPlaying) {
-        setShouldAutoPlay(true);
+        shouldAutoPlayRef.current = true;
       }
       setCurrentTrackIndex(prevTrack.originalIndex!);
       setPosition(0);
@@ -813,7 +831,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   };
 
   const selectTrack = (index: number) => {
-    setShouldAutoPlay(true);
+    shouldAutoPlayRef.current = true;
     setCurrentTrackIndex(index);
     setPosition(0);
     setShowPlaylist(false);
@@ -1559,8 +1577,8 @@ const styles = StyleSheet.create({
     transform: [{ skewX: '-30deg' }], // More aggressive slant
   },
   controlButtonActive: {
-    backgroundColor: colors.primary + '15',
-    borderColor: colors.primary,
+    backgroundColor: 'transparent',
+    borderColor: 'transparent',
   },
   controlIcon: {
     fontSize: 24,
@@ -1569,11 +1587,11 @@ const styles = StyleSheet.create({
   },
   controlIconSmall: {
     fontSize: 20,
-    color: colors.textPrimary,
+    color: colors.textSecondary, // Inactive state
     transform: [{ skewX: '30deg' }], // Counter-slant icon
   },
   controlIconActive: {
-    color: colors.primary,
+    color: colors.textPrimary, // Active state
   },
   playButton: {
     backgroundColor: colors.background,

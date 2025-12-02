@@ -29,6 +29,7 @@ import {
   FilterOption,
   Chapter,
 } from '../services/podcastStorage';
+import { SleepTimer, SleepTimerDuration, SleepTimerState } from '../services/sleepTimer';
 
 const PLAYBACK_SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
 
@@ -67,9 +68,11 @@ export const PodcastScreen: React.FC = () => {
   const [showFilterModal, setShowFilterModal] = useState(false);
 
   // Sleep timer state
-  const [sleepTimerMinutes, setSleepTimerMinutes] = useState<number | null>(null);
-  const [sleepTimerEndTime, setSleepTimerEndTime] = useState<number | null>(null);
-  const [sleepTimerRemaining, setSleepTimerRemaining] = useState<number | null>(null);
+  const [sleepTimerState, setSleepTimerState] = useState<SleepTimerState>({
+    isActive: false,
+    remainingSeconds: 0,
+    totalSeconds: 0,
+  });
   const [showSleepTimerModal, setShowSleepTimerModal] = useState(false);
   const [sleepAtEndOfEpisode, setSleepAtEndOfEpisode] = useState(false);
 
@@ -94,10 +97,11 @@ export const PodcastScreen: React.FC = () => {
 
   // Refs
   const progressSaveInterval = useRef<ReturnType<typeof setInterval> | null>(null);
-  const sleepTimerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastPauseTime = useRef<number | null>(null);
   const autoRewindApplied = useRef(false);
   const soundRef = useRef<Audio.Sound | null>(null);
+  
+  const sleepTimer = SleepTimer.getInstance();
 
   // Keep sound ref updated
   useEffect(() => {
@@ -116,6 +120,16 @@ export const PodcastScreen: React.FC = () => {
     });
   }, []);
 
+  // Subscribe to global sleep timer
+  useEffect(() => {
+    const unsubscribe = sleepTimer.addListener((state) => {
+      setSleepTimerState(state);
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
   // Initialize
   useEffect(() => {
     loadSavedPodcasts();
@@ -129,9 +143,6 @@ export const PodcastScreen: React.FC = () => {
       }
       if (progressSaveInterval.current) {
         clearInterval(progressSaveInterval.current);
-      }
-      if (sleepTimerInterval.current) {
-        clearInterval(sleepTimerInterval.current);
       }
     };
   }, []);
@@ -162,29 +173,7 @@ export const PodcastScreen: React.FC = () => {
     }
   }, [position, chapters]);
 
-  // Sleep timer countdown
-  useEffect(() => {
-    if (sleepTimerEndTime && isPlaying) {
-      sleepTimerInterval.current = setInterval(() => {
-        const remaining = sleepTimerEndTime - Date.now();
-        if (remaining <= 0) {
-          handleSleepTimerTrigger();
-        } else {
-          setSleepTimerRemaining(remaining);
-        }
-      }, 1000);
-    } else {
-      if (sleepTimerInterval.current) {
-        clearInterval(sleepTimerInterval.current);
-      }
-    }
 
-    return () => {
-      if (sleepTimerInterval.current) {
-        clearInterval(sleepTimerInterval.current);
-      }
-    };
-  }, [sleepTimerEndTime, isPlaying]);
 
   const loadSavedPodcasts = async () => {
     setIsLoadingPodcasts(true);
@@ -721,37 +710,27 @@ export const PodcastScreen: React.FC = () => {
     }
   }, [loadQueue, handlePlayEpisode, sound, setIsPlaying]); // Added setIsPlaying to deps.
 
+
+
   // Sleep timer
   const handleSetSleepTimer = (minutes: number | null, atEndOfEpisode: boolean = false) => {
     if (minutes === null && !atEndOfEpisode) {
       cancelSleepTimer();
     } else if (atEndOfEpisode) {
       setSleepAtEndOfEpisode(true);
-      setSleepTimerMinutes(null);
-      setSleepTimerEndTime(null);
-      setSleepTimerRemaining(null);
+      // If enabling "end of episode", stop the timed timer
+      sleepTimer.stop();
     } else if (minutes) {
-      setSleepTimerMinutes(minutes);
-      setSleepTimerEndTime(Date.now() + minutes * 60 * 1000);
-      setSleepTimerRemaining(minutes * 60 * 1000);
+      // Start shared timer
+      sleepTimer.start(minutes as SleepTimerDuration);
       setSleepAtEndOfEpisode(false);
     }
     setShowSleepTimerModal(false);
   };
 
   const cancelSleepTimer = () => {
-    setSleepTimerMinutes(null);
-    setSleepTimerEndTime(null);
-    setSleepTimerRemaining(null);
+    sleepTimer.stop();
     setSleepAtEndOfEpisode(false);
-  };
-
-  const handleSleepTimerTrigger = async () => {
-    if (sound) {
-      await sound.pauseAsync();
-    }
-    setIsPlaying(false);
-    cancelSleepTimer();
   };
 
   // Downloads
@@ -1127,7 +1106,7 @@ export const PodcastScreen: React.FC = () => {
                   onPress={() => setShowSleepTimerModal(true)}
                 >
                   <Text style={styles.extraButtonText}>
-                    {sleepTimerRemaining ? `⏰ ${formatTime(sleepTimerRemaining)}` :
+                    {sleepTimerState.isActive ? `⏰ ${sleepTimer.formatTime(sleepTimerState.remainingSeconds)}` :
                      sleepAtEndOfEpisode ? '⏰ End' : '⏰'}
                   </Text>
                 </TouchableOpacity>
@@ -1232,10 +1211,10 @@ export const PodcastScreen: React.FC = () => {
               {[5, 10, 15, 30, 45, 60].map((minutes) => (
                 <TouchableOpacity
                   key={minutes}
-                  style={[styles.modalOption, sleepTimerMinutes === minutes && styles.modalOptionActive]}
+                  style={[styles.modalOption, sleepTimerState.isActive && sleepTimerState.totalSeconds === minutes * 60 && styles.modalOptionActive]}
                   onPress={() => handleSetSleepTimer(minutes)}
                 >
-                  <Text style={[styles.modalOptionText, sleepTimerMinutes === minutes && styles.modalOptionTextActive]}>
+                  <Text style={[styles.modalOptionText, sleepTimerState.isActive && sleepTimerState.totalSeconds === minutes * 60 && styles.modalOptionTextActive]}>
                     {minutes} minutes
                   </Text>
                 </TouchableOpacity>
@@ -1248,7 +1227,7 @@ export const PodcastScreen: React.FC = () => {
                   End of Episode
                 </Text>
               </TouchableOpacity>
-              {(sleepTimerEndTime || sleepAtEndOfEpisode) && (
+              {(sleepTimerState.isActive || sleepAtEndOfEpisode) && (
                 <TouchableOpacity
                   style={[styles.modalOption, styles.cancelOption]}
                   onPress={() => handleSetSleepTimer(null)}
