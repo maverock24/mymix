@@ -704,6 +704,23 @@ export const PodcastScreen: React.FC = () => {
     }
   };
 
+  // New function to play the next episode from the queue
+  const playNextEpisodeFromQueue = useCallback(async () => {
+    const nextItem = await PodcastStorageService.popFromQueue();
+    if (nextItem) {
+      loadQueue(); // Update queue display
+      handlePlayEpisode(nextItem.episode, nextItem.podcast);
+    } else {
+      if ((Platform.OS as string) !== 'web') {
+        Alert.alert('Queue Empty', 'No more episodes in queue.');
+      } else {
+        alert('Queue Empty: No more episodes to play.'); // Web alert has no title
+      }
+      setIsPlaying(false);
+      if (sound) await sound.unloadAsync(); // Stop current playback if nothing in queue
+    }
+  }, [loadQueue, handlePlayEpisode, sound, setIsPlaying]); // Added setIsPlaying to deps.
+
   // Sleep timer
   const handleSetSleepTimer = (minutes: number | null, atEndOfEpisode: boolean = false) => {
     if (minutes === null && !atEndOfEpisode) {
@@ -946,18 +963,24 @@ export const PodcastScreen: React.FC = () => {
             contentContainerStyle={styles.episodesListContent}
             renderItem={({ item }) => {
               const progress = episodeProgress.get(item.id);
-              const progressPercent = getProgressPercentage(item.id);
               const isCompleted = progress?.completed || false;
               const downloaded = isDownloaded(item.id);
-              const downloading = isDownloading(item.id);
+              const isCurrent = currentEpisode?.id === item.id;
 
               return (
                 <TouchableOpacity
                   style={[
                     styles.episodeItem,
-                    currentEpisode?.id === item.id && styles.episodeItemActive,
+                    isCompleted && styles.episodeItemPlayed,
+                    isCurrent && styles.episodeItemActive,
                   ]}
-                  onPress={() => handlePlayEpisode(item)}
+                  onPress={() => {
+                    if (isCurrent) {
+                        handlePauseResume();
+                    } else {
+                        handlePlayEpisode(item);
+                    }
+                  }}
                   onLongPress={() => showEpisodeActions(item)}
                 >
                   <View style={styles.episodeInfo}>
@@ -966,50 +989,58 @@ export const PodcastScreen: React.FC = () => {
                         {item.title}
                       </Text>
                       <View style={styles.episodeBadges}>
-                        {downloaded && <Text style={styles.downloadedBadge}>↓</Text>}
-                        {isCompleted && <Text style={styles.completedBadge}>✓</Text>}
+                        {downloaded && (
+                          <TouchableOpacity 
+                            onPress={() => {
+                                // Prompt before deleting? Or just delete. User asked for interactive icons.
+                                // Let's just delete or toggle. Maybe long press to delete?
+                                // But "interactive" implies action.
+                                // Since tapping the row handles play, this specific icon can handle download mgmt.
+                                // Let's stick to the request: "icons... should be interactiveable".
+                                // For safety, maybe alert.
+                                Alert.alert('Delete Download?', `Delete "${item.title}" from device?`, [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    { text: 'Delete', style: 'destructive', onPress: () => handleDeleteDownload(item.id) }
+                                ]);
+                            }}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          >
+                            <Text style={styles.downloadedBadge}>↓</Text>
+                          </TouchableOpacity>
+                        )}
+                        {isCompleted && (
+                          <TouchableOpacity
+                            onPress={() => handleMarkAsUnplayed(item)}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          >
+                            <Text style={styles.completedBadge}>✓</Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
                     </View>
-                    {item.description && (
-                      <Text style={styles.episodeDescription} numberOfLines={2}>
-                        {item.description}
-                      </Text>
-                    )}
-                    <View style={styles.episodeMeta}>
+                    <View>
                       {item.pubDate && (
                         <Text style={styles.episodeDate}>{item.pubDate}</Text>
                       )}
-                      {item.duration && (
-                        <Text style={styles.episodeDuration}>
-                          {formatTime(item.duration)}
-                        </Text>
-                      )}
-                      {item.chapters && item.chapters.length > 0 && (
-                        <Text style={styles.chaptersBadge}>{item.chapters.length} chapters</Text>
-                      )}
                     </View>
-                    {progressPercent > 0 && (
-                      <View style={styles.progressBarContainer}>
-                        <View style={[styles.progressBar, { width: `${progressPercent}%` }]} />
-                      </View>
-                    )}
-                    {downloading && (
-                      <View style={styles.downloadProgressContainer}>
-                        <View style={[styles.downloadProgressBar, { width: `${getDownloadProgress(item.id) * 100}%` }]} />
-                      </View>
-                    )}
                   </View>
                   <View style={styles.episodeActions}>
-                    {currentEpisode?.id === item.id ? (
-                      <Text style={styles.playingIndicator}>
-                        {isBuffering ? '⏳' : isPlaying ? '▶' : '⏸'}
-                      </Text>
+                    {isCurrent ? (
+                      <TouchableOpacity 
+                        onPress={handlePauseResume}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Text style={styles.playingIndicator}>
+                            {isBuffering ? '⏳' : isPlaying ? '▶' : '⏸'}
+                        </Text>
+                      </TouchableOpacity>
                     ) : (
                       <TouchableOpacity
-                        style={styles.moreButton}
-                        onPress={() => showEpisodeActions(item)}
+                        style={styles.addToQueueButton}
+                        onPress={() => handleAddToQueue(item)}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                       >
-                        <Text style={styles.moreButtonText}>⋮</Text>
+                        <Text style={styles.addToQueueButtonText}>+</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -1112,9 +1143,9 @@ export const PodcastScreen: React.FC = () => {
 
                 <TouchableOpacity
                   style={styles.extraButton}
-                  onPress={() => setShowQueueModal(true)}
+                  onPress={playNextEpisodeFromQueue}
                 >
-                  <Text style={styles.extraButtonText}>⏭ {queue.length}</Text>
+                  <Text style={styles.extraButtonText}>⏭</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1610,26 +1641,26 @@ const styles = StyleSheet.create({
   },
   filterButton: {
     backgroundColor: colors.surface,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: 15, // Bigger
+    paddingVertical: 10, // Bigger
+    borderRadius: 10, // Adjust for new size
     borderWidth: 1,
     borderColor: colors.border,
   },
   filterButtonText: {
-    fontSize: 14,
+    fontSize: 16, // Bigger
     color: colors.textPrimary,
     fontWeight: '500',
   },
   queueButton: {
     backgroundColor: colors.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: 15, // Bigger
+    paddingVertical: 10, // Bigger
+    borderRadius: 10, // Adjust for new size
     marginLeft: 'auto',
   },
   queueButtonText: {
-    fontSize: 14,
+    fontSize: 16, // Bigger
     color: colors.background,
     fontWeight: '600',
   },
@@ -1842,10 +1873,15 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     minHeight: 88,
   },
+  episodeItemPlayed: {
+    opacity: 0.6, // Fade out played episodes
+    borderColor: colors.borderLight,
+  },
   episodeItemActive: {
     backgroundColor: colors.backgroundSecondary,
     borderColor: colors.primary,
     borderWidth: 3,
+    opacity: 1, // Active episode always fully visible
   },
   episodeInfo: {
     flex: 1,
@@ -1896,8 +1932,9 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   episodeDate: {
-    fontSize: 14,
-    color: colors.textMuted,
+    fontSize: 16, // Made bigger
+    color: colors.textSecondary,
+    marginTop: 4, // Add some spacing from title
   },
   episodeDuration: {
     fontSize: 14,
@@ -1929,16 +1966,26 @@ const styles = StyleSheet.create({
   episodeActions: {
     marginLeft: 12,
   },
-  moreButton: {
-    padding: 8,
+  addToQueueButton: {
+    padding: 10,
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  moreButtonText: {
+  addToQueueButtonText: {
     fontSize: 24,
-    color: colors.textMuted,
+    color: colors.primary,
     fontWeight: 'bold',
+    marginTop: -2, // Center visually
   },
   playingIndicator: {
     fontSize: 28,
+    color: '#FFFFFF', // White
   },
   player: {
     backgroundColor: colors.surface,
@@ -1990,32 +2037,38 @@ const styles = StyleSheet.create({
   },
   skipButton: {
     backgroundColor: colors.backgroundSecondary,
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderWidth: 2,
+    borderRadius: 0, // Sharp corners
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderWidth: 2, // Thicker border
     borderColor: colors.border,
-    minWidth: 80,
-    minHeight: 56,
+    minWidth: 90,
+    minHeight: 60,
     justifyContent: 'center',
     alignItems: 'center',
+    transform: [{ skewX: '-30deg' }], // More aggressive slant
   },
   skipButtonText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     color: colors.textPrimary,
+    transform: [{ skewX: '30deg' }], // Counter-slant text
   },
   playButton: {
     backgroundColor: colors.primary,
-    borderRadius: 40,
-    width: 80,
-    height: 80,
+    borderRadius: 0, // Sharp corners
+    width: 90,
+    height: 90,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 3, // Thicker border for prominence
+    borderColor: colors.primary, // Define border color explicitly
+    transform: [{ skewX: '-30deg' }], // More aggressive slant
   },
   playButtonText: {
-    fontSize: 36,
+    fontSize: 40,
     color: colors.background,
+    transform: [{ skewX: '30deg' }], // Counter-slant text
   },
   extraControls: {
     flexDirection: 'row',

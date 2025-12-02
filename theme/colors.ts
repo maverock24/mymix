@@ -1,39 +1,39 @@
-// Supabase-inspired dark theme colors
+// Cyberpunk theme colors
 export const colors = {
-  // Backgrounds
-  background: '#0e1117', // Main dark background
-  backgroundSecondary: '#1a1f2e', // Slightly lighter background
-  backgroundTertiary: '#252d3d', // Card/tile backgrounds
+  // Backgrounds - Deep dark grays/black for that "gritty" feel
+  background: '#050505', 
+  backgroundSecondary: '#121212',
+  backgroundTertiary: '#1E1E1E',
 
-  // Primary (Supabase green)
-  primary: '#3ECF8E', // Main Supabase green
-  primaryDark: '#2fb574',
-  primaryLight: '#5edfa1',
+  // Primary - High-contrast Neon Blue/Cyan
+  primary: '#03D8F3', // Cyberpunk Neon Blue/Cyan
+  primaryDark: '#00A3C0',
+  primaryLight: '#39EBFF',
 
-  // Text
-  textPrimary: '#e8e8e8', // Main text
-  textSecondary: '#a8b3cf', // Secondary text
-  textMuted: '#6b7280', // Muted text
+  // Text - Stark white or very light grey
+  textPrimary: '#FFFFFF',
+  textSecondary: '#B0B0B0',
+  textMuted: '#666666',
 
-  // Borders & Dividers
-  border: '#2d3748',
-  borderLight: '#374151',
+  // Borders - Sharp, industrial
+  border: '#333333',
+  borderLight: '#444444',
 
-  // Status colors
-  success: '#3ECF8E',
-  error: '#ef4444',
-  warning: '#f59e0b',
-  info: '#3b82f6',
+  // Status colors - Neon accents
+  success: '#39FF14',
+  error: '#FF003C', // Neon Red/Pink
+  warning: '#FCEE0A', // Cyberpunk Yellow
+  info: '#00F0FF',    // Neon Cyan
 
   // UI Elements
-  inputBackground: '#1f2937',
-  buttonBackground: '#252d3d',
-  cardBackground: '#1a1f2e',
-  surface: '#1a1f2e',
+  inputBackground: '#0A0A0A',
+  buttonBackground: '#1E1E1E',
+  cardBackground: '#121212',
+  surface: '#121212',
 
   // Overlays
-  overlay: 'rgba(0, 0, 0, 0.7)',
+  overlay: 'rgba(0, 0, 0, 0.85)',
 
   // Accent
-  accent: '#6366f1',
+  accent: '#FF003C', // Neon Pink
 };

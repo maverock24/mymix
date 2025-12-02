@@ -75,6 +75,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOption, setSortOption] = useState<SortOption>('default');
   const [showSearchSort, setShowSearchSort] = useState(false);
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
   // Favorites state
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
@@ -95,6 +96,11 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     if (!playlist) return [];
 
     let tracks = [...playlist.tracks].map((track, index) => ({ ...track, originalIndex: index }));
+
+    // Apply favorites filter
+    if (showFavoritesOnly) {
+      tracks = tracks.filter(track => favorites.has(track.id));
+    }
 
     // Apply search filter
     if (searchQuery.trim()) {
@@ -134,7 +140,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     }
 
     return tracks;
-  }, [playlist, searchQuery, sortOption]);
+  }, [playlist, searchQuery, sortOption, showFavoritesOnly, favorites]);
 
   // Sync currentTrackIndex when playlist changes or initialState updates
   useEffect(() => {
@@ -531,17 +537,42 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   );
 
   const handleCrossfade = async () => {
-    if (!playlist || isCrossfading) return;
+    const visibleTracks = getFilteredSortedTracks();
+    if (visibleTracks.length === 0 || isCrossfading) return;
 
-    const nextIndex = PlaylistService.getNextTrackIndex(
-      currentTrackIndex,
-      playlist.tracks.length,
-      repeat,
-      shuffle,
-      shuffledIndices
-    );
+    const currentVisibleIndex = visibleTracks.findIndex(t => t.originalIndex === currentTrackIndex);
+    
+    // If current track is not in visible list (e.g. hidden by filter), we can still crossfade to the first visible track
+    // or just let it finish. Let's allow it to transition to the first visible track for continuity.
+    
+    let nextVisibleIndex = -1;
 
-    if (nextIndex === null) return;
+    if (shuffle) {
+        nextVisibleIndex = Math.floor(Math.random() * visibleTracks.length);
+        if (visibleTracks.length > 1 && nextVisibleIndex === currentVisibleIndex) {
+            nextVisibleIndex = (nextVisibleIndex + 1) % visibleTracks.length;
+        }
+    } else {
+        if (repeat === 'one') {
+            // If repeating one, we don't crossfade, we just repeat. 
+            // But crossfade logic implies transition. 
+            // Usually crossfade is disabled for repeat one, or it fades into itself?
+            // Let's skip crossfade for repeat one to be safe, or fade into itself.
+            // For now, let's disable crossfade for repeat 'one' to avoid complexity.
+            return; 
+        } else if (currentVisibleIndex < visibleTracks.length - 1) {
+            nextVisibleIndex = currentVisibleIndex + 1;
+        } else if (repeat === 'all') {
+            nextVisibleIndex = 0;
+        }
+    }
+
+    if (nextVisibleIndex === -1) return;
+
+    const nextTrack = visibleTracks[nextVisibleIndex];
+    const nextIndex = nextTrack.originalIndex;
+
+    if (nextIndex === undefined) return;
 
     setIsCrossfading(true);
 
@@ -572,19 +603,46 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   };
 
   const handleTrackFinish = () => {
-    if (!playlist) return;
+    const visibleTracks = getFilteredSortedTracks();
+    if (visibleTracks.length === 0) {
+        setIsPlaying(false);
+        return;
+    }
 
-    const nextIndex = PlaylistService.getNextTrackIndex(
-      currentTrackIndex,
-      playlist.tracks.length,
-      repeat,
-      shuffle,
-      shuffledIndices
-    );
+    const currentVisibleIndex = visibleTracks.findIndex(t => t.originalIndex === currentTrackIndex);
+    
+    let nextVisibleIndex = -1;
 
-    if (nextIndex !== null) {
+    if (shuffle) {
+        nextVisibleIndex = Math.floor(Math.random() * visibleTracks.length);
+        if (visibleTracks.length > 1 && nextVisibleIndex === currentVisibleIndex) {
+            nextVisibleIndex = (nextVisibleIndex + 1) % visibleTracks.length;
+        }
+    } else {
+        if (repeat === 'one') {
+            // If current track is hidden but repeat is one, we should probably repeat it?
+            // But we can't find it in visibleTracks to get the object.
+            // We can just keep currentTrackIndex!
+            // But we need to reload it to replay it (since position is at end).
+            if (currentVisibleIndex === -1) {
+                 // Track hidden, but repeat one. Just replay current.
+                 setShouldAutoPlay(true);
+                 setCurrentTrackIndex(currentTrackIndex); // Trigger reload
+                 setPosition(0);
+                 return;
+            }
+            nextVisibleIndex = currentVisibleIndex;
+        } else if (currentVisibleIndex < visibleTracks.length - 1) {
+            nextVisibleIndex = currentVisibleIndex + 1;
+        } else if (repeat === 'all') {
+            nextVisibleIndex = 0;
+        }
+    }
+
+    if (nextVisibleIndex !== -1) {
+      const nextTrack = visibleTracks[nextVisibleIndex];
       setShouldAutoPlay(true);
-      setCurrentTrackIndex(nextIndex);
+      setCurrentTrackIndex(nextTrack.originalIndex!);
       setPosition(0);
     } else {
       setIsPlaying(false);
@@ -595,6 +653,13 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     console.log(`[Player ${playerNumber}] togglePlayPause called. sound:`, !!sound, 'isPlaying:', isPlaying);
 
     if (!sound) {
+      // If no sound but we have a playlist, try to load the first track
+      const visibleTracks = getFilteredSortedTracks();
+      if (visibleTracks.length > 0) {
+          setCurrentTrackIndex(visibleTracks[0].originalIndex!);
+          setShouldAutoPlay(true);
+          return;
+      }
       console.warn(`[Player ${playerNumber}] Cannot play - no sound loaded`);
       return;
     }
@@ -624,28 +689,36 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   });
 
   const handleNext = () => {
-    if (!playlist) return;
+    const visibleTracks = getFilteredSortedTracks();
+    if (visibleTracks.length === 0) return;
 
-    const nextIndex = PlaylistService.getNextTrackIndex(
-      currentTrackIndex,
-      playlist.tracks.length,
-      repeat,
-      shuffle,
-      shuffledIndices
-    );
+    const currentVisibleIndex = visibleTracks.findIndex(t => t.originalIndex === currentTrackIndex);
+    
+    let nextVisibleIndex = -1;
 
-    if (nextIndex !== null) {
+    if (shuffle) {
+        nextVisibleIndex = Math.floor(Math.random() * visibleTracks.length);
+    } else {
+        // For manual next, we wrap around even if repeat is off, usually
+        // But strictly:
+        if (currentVisibleIndex < visibleTracks.length - 1) {
+            nextVisibleIndex = currentVisibleIndex + 1;
+        } else {
+            nextVisibleIndex = 0; // Wrap to start
+        }
+    }
+
+    if (nextVisibleIndex !== -1) {
+      const nextTrack = visibleTracks[nextVisibleIndex];
       if (isPlaying) {
         setShouldAutoPlay(true);
       }
-      setCurrentTrackIndex(nextIndex);
+      setCurrentTrackIndex(nextTrack.originalIndex!);
       setPosition(0);
     }
   };
 
   const handlePrevious = () => {
-    if (!playlist) return;
-
     if (position > 3000) {
       setPosition(0);
       if (sound) {
@@ -654,18 +727,29 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       return;
     }
 
-    const prevIndex = PlaylistService.getPreviousTrackIndex(
-      currentTrackIndex,
-      playlist.tracks.length,
-      shuffle,
-      shuffledIndices
-    );
+    const visibleTracks = getFilteredSortedTracks();
+    if (visibleTracks.length === 0) return;
 
-    if (prevIndex !== null) {
+    const currentVisibleIndex = visibleTracks.findIndex(t => t.originalIndex === currentTrackIndex);
+    
+    let prevVisibleIndex = -1;
+
+    if (shuffle) {
+         prevVisibleIndex = Math.floor(Math.random() * visibleTracks.length);
+    } else {
+        if (currentVisibleIndex > 0) {
+            prevVisibleIndex = currentVisibleIndex - 1;
+        } else {
+            prevVisibleIndex = visibleTracks.length - 1; // Wrap to end
+        }
+    }
+
+    if (prevVisibleIndex !== -1) {
+      const prevTrack = visibleTracks[prevVisibleIndex];
       if (isPlaying) {
         setShouldAutoPlay(true);
       }
-      setCurrentTrackIndex(prevIndex);
+      setCurrentTrackIndex(prevTrack.originalIndex!);
       setPosition(0);
     }
   };
@@ -792,7 +876,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
           style={styles.favoriteButton}
         >
           <Text style={[styles.favoriteIcon, isFavorite && styles.favoriteIconActive]}>
-            {isFavorite ? '❤️' : '🤍'}
+            {isFavorite ? '★' : '☆'}
           </Text>
         </TouchableOpacity>
       </TouchableOpacity>
@@ -817,15 +901,23 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       {/* Inline Playlist for Player 1 */}
       {playerNumber === 1 && playlist && (
         <View style={styles.inlinePlaylistContainer}>
-           {/* Search and Sort Bar for Inline Playlist */}
+            {/* Search and Sort Bar for Inline Playlist */}
             <View style={styles.searchSortBar}>
               <TextInput
                 style={styles.searchInput}
-                placeholder="Search..."
+                placeholder={showFavoritesOnly ? "Search favorites..." : "Search tracks..."}
                 placeholderTextColor={colors.textMuted}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
               />
+              <TouchableOpacity
+                style={[styles.sortButton, showFavoritesOnly && styles.sortButtonActive]}
+                onPress={() => setShowFavoritesOnly(!showFavoritesOnly)}
+              >
+                <Text style={[styles.sortButtonText, showFavoritesOnly && styles.sortButtonTextActive]}>
+                  {showFavoritesOnly ? '★' : '☆'}
+                </Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.sortButton}
                 onPress={() => {
@@ -908,7 +1000,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                       style={styles.trackFavoriteButton}
                     >
                       <Text style={styles.trackFavoriteIcon}>
-                        {favorites.has(currentTrack.id) ? '❤️' : '🤍'}
+                        {favorites.has(currentTrack.id) ? '★' : '☆'}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -1062,30 +1154,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                 </View>
               </View>
 
-              {/* Extra Controls Row - AB Repeat */}
-              <View style={styles.extraControlsRow}>
-                <TouchableOpacity
-                  onPress={setPointAB}
-                  style={[styles.extraButton, abRepeatActive && styles.extraButtonActive]}
-                >
-                  <Text style={styles.extraButtonText}>
-                    {pointA === null ? 'A' : pointB === null ? 'B' : 'Clear'}
-                  </Text>
-                  <Text style={styles.extraButtonLabel}>
-                    {abRepeatActive ? 'A-B ✓' : 'A-B Loop'}
-                  </Text>
-                </TouchableOpacity>
 
-                <TouchableOpacity
-                  onPress={() => setCrossfadeEnabled(!crossfadeEnabled)}
-                  style={[styles.extraButton, crossfadeEnabled && styles.extraButtonActive]}
-                >
-                  <Text style={styles.extraButtonText}>⤭</Text>
-                  <Text style={styles.extraButtonLabel}>
-                    Crossfade {crossfadeEnabled ? 'ON' : 'OFF'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
             </View>
           </>
         )}
@@ -1115,11 +1184,19 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
             <View style={styles.searchSortBar}>
               <TextInput
                 style={styles.searchInput}
-                placeholder="Search..."
+                placeholder={showFavoritesOnly ? "Search favorites..." : "Search tracks..."}
                 placeholderTextColor={colors.textMuted}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
               />
+              <TouchableOpacity
+                style={[styles.sortButton, showFavoritesOnly && styles.sortButtonActive]}
+                onPress={() => setShowFavoritesOnly(!showFavoritesOnly)}
+              >
+                <Text style={[styles.sortButtonText, showFavoritesOnly && styles.sortButtonTextActive]}>
+                  {showFavoritesOnly ? '★' : '☆'}
+                </Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.sortButton}
                 onPress={() => {
@@ -1302,7 +1379,7 @@ const styles = StyleSheet.create({
   },
   playlistItemText: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 18, // Made even bigger
     color: colors.textPrimary,
   },
   activePlaylistItemText: {
@@ -1314,10 +1391,11 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   favoriteIcon: {
-    fontSize: 16,
+    fontSize: 22, // Bigger star icon
+    color: colors.textMuted,
   },
   favoriteIconActive: {
-    color: '#ff6b6b',
+    color: colors.warning, // Yellow for filled star
   },
   playerArea: {
     padding: 8,
@@ -1397,7 +1475,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   trackFavoriteIcon: {
-    fontSize: 18,
+    fontSize: 26, // Bigger star icon
   },
   trackArtist: {
     fontSize: 12,
@@ -1482,18 +1560,18 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   adjustButtonSmall: {
-    width: 32,
-    height: 32,
+    width: 38, // Bigger
+    height: 38, // Bigger
     backgroundColor: colors.primary,
-    borderRadius: 6,
+    borderRadius: 8, // Adjust for new size
     alignItems: 'center',
     justifyContent: 'center',
   },
   adjustButtonText: {
-    fontSize: 18,
+    fontSize: 20, // Bigger
     fontWeight: 'bold',
     color: colors.background,
-    lineHeight: 18,
+    lineHeight: 20, // Adjust for new font size
   },
   valueDisplayCompact: {
     minWidth: 60,
@@ -1521,35 +1599,38 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   controlButton: {
-    width: 44,
-    height: 44,
+    width: 50,
+    height: 50,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: colors.backgroundSecondary,
-    borderRadius: 22,
-    borderWidth: 1,
+    borderRadius: 0,
+    borderWidth: 2, // Thicker border
     borderColor: colors.border,
+    transform: [{ skewX: '-30deg' }], // More aggressive slant
   },
   controlButtonActive: {
     backgroundColor: colors.primary + '15',
     borderColor: colors.primary,
   },
   controlIcon: {
-    fontSize: 22,
+    fontSize: 24,
     color: colors.textPrimary,
+    transform: [{ skewX: '30deg' }], // Counter-slant icon
   },
   controlIconSmall: {
-    fontSize: 18,
+    fontSize: 20,
     color: colors.textPrimary,
+    transform: [{ skewX: '30deg' }], // Counter-slant icon
   },
   controlIconActive: {
     color: colors.primary,
   },
   playButton: {
     backgroundColor: colors.primary,
-    borderRadius: 32,
-    width: 64,
-    height: 64,
+    borderRadius: 0, // Sharp corners
+    width: 72,
+    height: 72,
     justifyContent: 'center',
     alignItems: 'center',
     marginHorizontal: 8,
@@ -1558,10 +1639,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 5,
+    borderWidth: 3, // Thicker border for prominence
+    borderColor: colors.primary, // Define border color explicitly
+    transform: [{ skewX: '-30deg' }], // More aggressive slant
   },
   playIcon: {
-    fontSize: 32,
+    fontSize: 36,
     color: colors.background,
+    transform: [{ skewX: '30deg' }], // Counter-slant icon
   },
   extraControlsRow: {
     flexDirection: 'row',
@@ -1574,8 +1659,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: 10, // Bigger
+    paddingHorizontal: 15, // Bigger
     alignItems: 'center',
     minWidth: 70,
   },
@@ -1585,7 +1670,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   extraButtonText: {
-    fontSize: 16,
+    fontSize: 18, // Bigger
     color: colors.textPrimary,
     fontWeight: 'bold',
   },
@@ -1756,8 +1841,15 @@ const styles = StyleSheet.create({
     minWidth: 44,
   },
   sortButtonText: {
-    fontSize: 16,
+    fontSize: 20, // Bigger sort icons, including favorite star
     color: colors.textPrimary,
+  },
+  sortButtonActive: {
+    backgroundColor: colors.primary + '20',
+    borderColor: colors.primary,
+  },
+  sortButtonTextActive: {
+    color: colors.primary,
   },
   playlistModalList: {
     flexGrow: 0,
