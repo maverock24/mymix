@@ -8,13 +8,17 @@ import {
   Platform,
   FlatList,
   Modal,
+  TextInput,
+  Alert,
 } from 'react-native';
-import { Audio } from 'expo-audio';
+import { Audio } from 'expo-av';
 import Slider from '@react-native-community/slider';
 import { MediaControl, PlaybackState, Command } from '../services/mediaControl';
 import { Track, Playlist, PlayerState, RepeatMode } from '../services/storage';
 import { PlaylistService } from '../services/playlistService';
 import { colors } from '../theme/colors';
+
+type SortOption = 'default' | 'title' | 'artist' | 'duration';
 
 interface SinglePlayerProps {
   playlist: Playlist | null;
@@ -54,13 +58,80 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   const [showPlaylist, setShowPlaylist] = useState(false);
   const [shouldAutoPlay, setShouldAutoPlay] = useState(false);
 
+  // AB Repeat state
+  const [abRepeatActive, setAbRepeatActive] = useState(false);
+  const [pointA, setPointA] = useState<number | null>(null);
+  const [pointB, setPointB] = useState<number | null>(null);
+
+  // Crossfade state
+  const [crossfadeEnabled, setCrossfadeEnabled] = useState(false);
+  const [crossfadeDuration, setCrossfadeDuration] = useState(3000); // 3 seconds default
+  const [isCrossfading, setIsCrossfading] = useState(false);
+
+  // Search and Sort state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOption, setSortOption] = useState<SortOption>('default');
+  const [showSearchSort, setShowSearchSort] = useState(false);
+
+  // Favorites state
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+
+  // Settings modal
+  const [showSettings, setShowSettings] = useState(false);
+
   const lastPositionUpdate = useRef(0);
   const POSITION_UPDATE_INTERVAL = 500;
   const blobUrl = useRef<string | null>(null);
   const isInitialLoad = useRef(true);
-
+  const crossfadeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentTrack = playlist?.tracks[currentTrackIndex];
+
+  // Get filtered and sorted tracks
+  const getFilteredSortedTracks = useCallback(() => {
+    if (!playlist) return [];
+
+    let tracks = [...playlist.tracks].map((track, index) => ({ ...track, originalIndex: index }));
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      tracks = tracks.filter(track => {
+        const info = PlaylistService.parseTrackName(track.name);
+        return (
+          info.title.toLowerCase().includes(query) ||
+          (info.artist && info.artist.toLowerCase().includes(query)) ||
+          track.name.toLowerCase().includes(query)
+        );
+      });
+    }
+
+    // Apply sorting
+    switch (sortOption) {
+      case 'title':
+        tracks.sort((a, b) => {
+          const titleA = PlaylistService.parseTrackName(a.name).title.toLowerCase();
+          const titleB = PlaylistService.parseTrackName(b.name).title.toLowerCase();
+          return titleA.localeCompare(titleB);
+        });
+        break;
+      case 'artist':
+        tracks.sort((a, b) => {
+          const artistA = (PlaylistService.parseTrackName(a.name).artist || '').toLowerCase();
+          const artistB = (PlaylistService.parseTrackName(b.name).artist || '').toLowerCase();
+          return artistA.localeCompare(artistB);
+        });
+        break;
+      case 'duration':
+        // Duration sort would require duration metadata, skip for now
+        break;
+      default:
+        // Keep original order
+        break;
+    }
+
+    return tracks;
+  }, [playlist, searchQuery, sortOption]);
 
   // Sync currentTrackIndex when playlist changes or initialState updates
   useEffect(() => {
@@ -69,12 +140,10 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
         console.log(`[Player ${playerNumber}] Syncing track index from initialState:`, initialState.currentTrackIndex);
         setCurrentTrackIndex(initialState.currentTrackIndex);
       } else {
-        // New playlist loaded, reset to beginning
         console.log(`[Player ${playerNumber}] New playlist loaded, resetting to track 0`);
         setCurrentTrackIndex(0);
       }
     } else if (playlist && !initialState) {
-      // New playlist, no initial state
       console.log(`[Player ${playerNumber}] Playlist loaded without initialState, starting at track 0`);
       setCurrentTrackIndex(0);
     }
@@ -89,8 +158,8 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
             playsInSilentModeIOS: true,
             staysActiveInBackground: true,
             shouldDuckAndroid: false,
-            interruptionModeAndroid: 2, // INTERRUPTION_MODE_ANDROID_DO_NOT_MIX
-            interruptionModeIOS: 2, // INTERRUPTION_MODE_IOS_DO_NOT_MIX
+            interruptionModeAndroid: 2,
+            interruptionModeIOS: 2,
           });
         } catch (error) {
           console.error('Error setting audio mode:', error);
@@ -99,6 +168,20 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     };
 
     initializeAudioMode();
+  }, []);
+
+  // Load favorites from storage
+  useEffect(() => {
+    const loadFavorites = async () => {
+      try {
+        const { StorageService } = await import('../services/storage');
+        const savedFavorites = await StorageService.getFavorites();
+        setFavorites(new Set(savedFavorites));
+      } catch (error) {
+        console.error('Error loading favorites:', error);
+      }
+    };
+    loadFavorites();
   }, []);
 
   // Expose pause and play methods to parent via ref
@@ -155,6 +238,29 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     };
   }, [currentTrackIndex, playlist, currentTrack, playerNumber]);
 
+  // AB Repeat loop check
+  useEffect(() => {
+    if (abRepeatActive && pointA !== null && pointB !== null && position >= pointB) {
+      if (sound) {
+        sound.setPositionAsync(pointA);
+      }
+    }
+  }, [position, abRepeatActive, pointA, pointB, sound]);
+
+  // Crossfade detection
+  useEffect(() => {
+    if (
+      crossfadeEnabled &&
+      !isCrossfading &&
+      duration > 0 &&
+      position > 0 &&
+      duration - position <= crossfadeDuration &&
+      isPlaying
+    ) {
+      handleCrossfade();
+    }
+  }, [position, duration, crossfadeEnabled, isCrossfading, isPlaying, crossfadeDuration]);
+
   // Media control event handlers - using refs to avoid stale closures
   const togglePlayPauseRef = useRef<(() => Promise<void>) | null>(null);
   const handleNextRef = useRef<(() => void) | null>(null);
@@ -183,7 +289,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
           },
         });
 
-        // Subscribe to media control events
         const removeListener = MediaControl.addListener((event: any) => {
           console.log('[MediaControl] Received command:', event.command);
 
@@ -213,7 +318,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
         });
 
         console.log('[MediaControl] Listener attached');
-        // Return cleanup function
         return removeListener;
       } catch (error) {
         console.error('[MediaControl] Error initializing:', error);
@@ -247,7 +351,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
           title: trackInfo.title,
           artist: trackInfo.artist || 'Unknown Artist',
           album: `${playlist?.name || 'MyMix'} - Player ${playerNumber}`,
-          duration: duration / 1000, // Convert to seconds
+          duration: duration / 1000,
         };
 
         console.log('[MediaControl] Updating metadata:', metadata);
@@ -293,17 +397,15 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       console.log(`[Player ${playerNumber}] Loading track:`, track.title);
       setIsLoading(true);
 
-      // Set audio mode first
       console.log(`[Player ${playerNumber}] Setting audio mode...`);
       await Audio.setAudioModeAsync({
         playsInSilentModeIOS: true,
         staysActiveInBackground: true,
         shouldDuckAndroid: false,
-        interruptionModeAndroid: 2, // INTERRUPTION_MODE_ANDROID_DO_NOT_MIX
-        interruptionModeIOS: 2, // INTERRUPTION_MODE_IOS_DO_NOT_MIX
+        interruptionModeAndroid: 2,
+        interruptionModeIOS: 2,
       });
 
-      // Standard loading
       console.log(`[Player ${playerNumber}] Unloading previous sound...`);
       await unloadSound();
 
@@ -329,14 +431,18 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       console.log(`[Player ${playerNumber}] Sound created successfully`);
       setSound(newSound);
 
-      // On initial load, restore saved position; otherwise reset to 0
+      // Reset AB Repeat when loading new track
+      setAbRepeatActive(false);
+      setPointA(null);
+      setPointB(null);
+      setIsCrossfading(false);
+
       if (isInitialLoad.current && initialState?.position) {
         try {
           await newSound.setPositionAsync(initialState.position);
           setPosition(initialState.position);
           isInitialLoad.current = false;
 
-          // If was playing before, resume playback
           if (initialState.isPlaying) {
             await newSound.playAsync();
             setIsPlaying(true);
@@ -348,7 +454,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       } else {
         setPosition(0);
 
-        // Auto-play if flag is set
         if (shouldAutoPlay) {
           try {
             await newSound.playAsync();
@@ -359,7 +464,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
           }
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error(`[Player ${playerNumber}] Error loading track:`, error);
       Alert.alert('Loading Error', `Failed to load track: ${error.message || error}`);
     } finally {
@@ -380,13 +485,54 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
           setDuration(status.durationMillis);
         }
 
-        if (status.didJustFinish) {
+        if (status.didJustFinish && !isCrossfading) {
           handleTrackFinish();
         }
       }
     },
-    [duration]
+    [duration, isCrossfading]
   );
+
+  const handleCrossfade = async () => {
+    if (!playlist || isCrossfading) return;
+
+    const nextIndex = PlaylistService.getNextTrackIndex(
+      currentTrackIndex,
+      playlist.tracks.length,
+      repeat,
+      shuffle,
+      shuffledIndices
+    );
+
+    if (nextIndex === null) return;
+
+    setIsCrossfading(true);
+
+    // Start fading out current track
+    const fadeSteps = 10;
+    const stepDuration = crossfadeDuration / fadeSteps;
+    const volumeStep = volume / fadeSteps;
+
+    for (let i = 0; i < fadeSteps; i++) {
+      await new Promise(resolve => setTimeout(resolve, stepDuration));
+      if (sound) {
+        const newVol = Math.max(0, volume - volumeStep * (i + 1));
+        await sound.setVolumeAsync(newVol);
+      }
+    }
+
+    // Load next track
+    setShouldAutoPlay(true);
+    setCurrentTrackIndex(nextIndex);
+    setPosition(0);
+
+    // Restore volume
+    if (sound) {
+      await sound.setVolumeAsync(volume);
+    }
+
+    setIsCrossfading(false);
+  };
 
   const handleTrackFinish = () => {
     if (!playlist) return;
@@ -400,7 +546,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     );
 
     if (nextIndex !== null) {
-      // Auto-play next track since this was triggered by track finishing
       setShouldAutoPlay(true);
       setCurrentTrackIndex(nextIndex);
       setPosition(0);
@@ -429,13 +574,12 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
         setIsPlaying(true);
         console.log(`[Player ${playerNumber}] Playing successfully`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error(`[Player ${playerNumber}] Error toggling play/pause:`, error);
       Alert.alert('Playback Error', `Failed to ${isPlaying ? 'pause' : 'play'}: ${error.message || error}`);
     }
   };
 
-  // Update refs when functions change
   useEffect(() => {
     togglePlayPauseRef.current = togglePlayPause;
     soundRef.current = sound;
@@ -453,7 +597,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     );
 
     if (nextIndex !== null) {
-      // Set flag to auto-play if currently playing
       if (isPlaying) {
         setShouldAutoPlay(true);
       }
@@ -481,7 +624,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     );
 
     if (prevIndex !== null) {
-      // Set flag to auto-play if currently playing
       if (isPlaying) {
         setShouldAutoPlay(true);
       }
@@ -490,7 +632,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
     }
   };
 
-  // Update handleNext and handlePrevious refs
   useEffect(() => {
     handleNextRef.current = handleNext;
     handlePreviousRef.current = handlePrevious;
@@ -544,29 +685,78 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   const selectTrack = (index: number) => {
     setCurrentTrackIndex(index);
     setPosition(0);
-    setShowPlaylist(false); // Close playlist modal after selection
+    setShowPlaylist(false);
+  };
+
+  // AB Repeat functions
+  const setPointAB = () => {
+    if (pointA === null) {
+      setPointA(position);
+    } else if (pointB === null) {
+      if (position > pointA) {
+        setPointB(position);
+        setAbRepeatActive(true);
+      } else {
+        // Reset if B is before A
+        setPointA(position);
+        setPointB(null);
+      }
+    } else {
+      // Clear AB repeat
+      setPointA(null);
+      setPointB(null);
+      setAbRepeatActive(false);
+    }
+  };
+
+  // Toggle favorite
+  const toggleFavorite = async (trackId: string) => {
+    const newFavorites = new Set(favorites);
+    if (newFavorites.has(trackId)) {
+      newFavorites.delete(trackId);
+    } else {
+      newFavorites.add(trackId);
+    }
+    setFavorites(newFavorites);
+
+    try {
+      const { StorageService } = await import('../services/storage');
+      await StorageService.saveFavorites(Array.from(newFavorites));
+    } catch (error) {
+      console.error('Error saving favorites:', error);
+    }
   };
 
   const trackInfo = currentTrack
     ? PlaylistService.parseTrackName(currentTrack.name)
     : { title: 'No track' };
 
-  const renderPlaylistItem = ({ item, index }: { item: Track; index: number }) => {
-    const isActive = index === currentTrackIndex;
+  const renderPlaylistItem = ({ item, index }: { item: Track & { originalIndex?: number }; index: number }) => {
+    const actualIndex = item.originalIndex !== undefined ? item.originalIndex : index;
+    const isActive = actualIndex === currentTrackIndex;
     const trackName = PlaylistService.parseTrackName(item.name).title;
+    const isFavorite = favorites.has(item.id);
 
     return (
       <TouchableOpacity
-        onPress={() => selectTrack(index)}
+        onPress={() => selectTrack(actualIndex)}
         style={[styles.playlistItem, isActive && styles.activePlaylistItem]}
       >
-        <Text style={styles.playlistIndex}>{index + 1}.</Text>
+        <Text style={styles.playlistIndex}>{actualIndex + 1}.</Text>
         <Text
           style={[styles.playlistItemText, isActive && styles.activePlaylistItemText]}
           numberOfLines={1}
         >
           {trackName}
         </Text>
+        <TouchableOpacity
+          onPress={() => toggleFavorite(item.id)}
+          style={styles.favoriteButton}
+        >
+          <Text style={[styles.favoriteIcon, isFavorite && styles.favoriteIconActive]}>
+            {isFavorite ? '❤️' : '🤍'}
+          </Text>
+        </TouchableOpacity>
       </TouchableOpacity>
     );
   };
@@ -577,6 +767,9 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       <View style={styles.header}>
         <Text style={styles.playerLabel}>{playerNumber === 1 ? 'Main' : 'Background'}</Text>
         <View style={styles.headerButtons}>
+          <TouchableOpacity onPress={() => setShowSettings(true)} style={styles.settingsButton}>
+            <Text style={styles.settingsButtonText}>⚙️</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={onLoadPlaylist} style={styles.loadButton}>
             <Text style={styles.loadButtonText}>📁</Text>
           </TouchableOpacity>
@@ -621,9 +814,21 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
             <View style={styles.mainContentContainer}>
               {/* Track Info */}
               <View style={styles.trackInfo}>
-                <Text style={styles.trackTitle} numberOfLines={1}>
-                  {trackInfo.title}
-                </Text>
+                <View style={styles.trackTitleRow}>
+                  <Text style={styles.trackTitle} numberOfLines={1}>
+                    {trackInfo.title}
+                  </Text>
+                  {currentTrack && (
+                    <TouchableOpacity
+                      onPress={() => toggleFavorite(currentTrack.id)}
+                      style={styles.trackFavoriteButton}
+                    >
+                      <Text style={styles.trackFavoriteIcon}>
+                        {favorites.has(currentTrack.id) ? '❤️' : '🤍'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
                 {trackInfo.artist && (
                   <Text style={styles.trackArtist} numberOfLines={1}>
                     {trackInfo.artist}
@@ -634,26 +839,55 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                 </Text>
               </View>
 
-              {/* Progress Bar */}
+              {/* Progress Bar with AB Repeat markers */}
               <View style={styles.progressContainer}>
                 <Text style={styles.timeText}>{PlaylistService.formatTime(position)}</Text>
-                <Slider
-                  style={styles.progressSlider}
-                  minimumValue={0}
-                  maximumValue={duration || 1}
-                  value={position}
-                  onValueChange={handlePositionChange}
-                  onSlidingComplete={handlePositionComplete}
-                  minimumTrackTintColor={colors.primary}
-                  maximumTrackTintColor={colors.border}
-                  thumbTintColor={colors.primary}
-                />
+                <View style={styles.sliderContainer}>
+                  <Slider
+                    style={styles.progressSlider}
+                    minimumValue={0}
+                    maximumValue={duration || 1}
+                    value={position}
+                    onValueChange={handlePositionChange}
+                    onSlidingComplete={handlePositionComplete}
+                    minimumTrackTintColor={colors.primary}
+                    maximumTrackTintColor={colors.border}
+                    thumbTintColor={colors.primary}
+                  />
+                  {/* AB Repeat markers */}
+                  {pointA !== null && duration > 0 && (
+                    <View
+                      style={[
+                        styles.abMarker,
+                        styles.markerA,
+                        { left: `${(pointA / duration) * 100}%` },
+                      ]}
+                    />
+                  )}
+                  {pointB !== null && duration > 0 && (
+                    <View
+                      style={[
+                        styles.abMarker,
+                        styles.markerB,
+                        { left: `${(pointB / duration) * 100}%` },
+                      ]}
+                    />
+                  )}
+                </View>
                 <Text style={styles.timeText}>{PlaylistService.formatTime(duration)}</Text>
               </View>
 
+              {/* AB Repeat indicator */}
+              {abRepeatActive && (
+                <View style={styles.abRepeatIndicator}>
+                  <Text style={styles.abRepeatText}>
+                    🔁 A-B: {PlaylistService.formatTime(pointA || 0)} → {PlaylistService.formatTime(pointB || 0)}
+                  </Text>
+                </View>
+              )}
+
               {/* Playback Controls */}
               <View style={styles.controlsSection}>
-                {/* Mode Buttons and Playback Controls */}
                 <View style={styles.controls}>
                   <TouchableOpacity
                     onPress={toggleShuffle}
@@ -701,7 +935,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                 </View>
               </View>
 
-              {/* Volume and Speed Controls - New Row Layout */}
+              {/* Secondary Controls Row */}
               <View style={styles.secondaryControls}>
                 {/* Volume Control */}
                 <View style={styles.controlGroupHorizontal}>
@@ -712,7 +946,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                   >
                     <Text style={styles.adjustButtonText}>−</Text>
                   </TouchableOpacity>
-                  
+
                   <View style={styles.valueDisplayCompact}>
                     <Text style={styles.valueLabel}>VOL</Text>
                     <Text style={styles.valueTextCompact}>{Math.round(volume * 100)}%</Text>
@@ -736,7 +970,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                   >
                     <Text style={styles.adjustButtonText}>−</Text>
                   </TouchableOpacity>
-                  
+
                   <View style={styles.valueDisplayCompact}>
                     <Text style={styles.valueLabel}>SPEED</Text>
                     <Text style={styles.valueTextCompact}>{speed.toFixed(1)}×</Text>
@@ -750,6 +984,31 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                     <Text style={styles.adjustButtonText}>+</Text>
                   </TouchableOpacity>
                 </View>
+              </View>
+
+              {/* Extra Controls Row - AB Repeat */}
+              <View style={styles.extraControlsRow}>
+                <TouchableOpacity
+                  onPress={setPointAB}
+                  style={[styles.extraButton, abRepeatActive && styles.extraButtonActive]}
+                >
+                  <Text style={styles.extraButtonText}>
+                    {pointA === null ? 'A' : pointB === null ? 'B' : 'Clear'}
+                  </Text>
+                  <Text style={styles.extraButtonLabel}>
+                    {abRepeatActive ? 'A-B ✓' : 'A-B Loop'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setCrossfadeEnabled(!crossfadeEnabled)}
+                  style={[styles.extraButton, crossfadeEnabled && styles.extraButtonActive]}
+                >
+                  <Text style={styles.extraButtonText}>⤭</Text>
+                  <Text style={styles.extraButtonLabel}>
+                    Crossfade {crossfadeEnabled ? 'ON' : 'OFF'}
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
           </>
@@ -776,8 +1035,31 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
               {playlist?.tracks.length} tracks
             </Text>
 
+            {/* Search and Sort Bar */}
+            <View style={styles.searchSortBar}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search..."
+                placeholderTextColor={colors.textMuted}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              <TouchableOpacity
+                style={styles.sortButton}
+                onPress={() => {
+                  const options: SortOption[] = ['default', 'title', 'artist'];
+                  const currentIndex = options.indexOf(sortOption);
+                  setSortOption(options[(currentIndex + 1) % options.length]);
+                }}
+              >
+                <Text style={styles.sortButtonText}>
+                  {sortOption === 'default' ? '⇅' : sortOption === 'title' ? 'A-Z' : '🎤'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             <FlatList
-              data={playlist?.tracks || []}
+              data={getFilteredSortedTracks()}
               renderItem={renderPlaylistItem}
               keyExtractor={(item) => item.id}
               showsVerticalScrollIndicator={true}
@@ -789,6 +1071,65 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
               onPress={() => setShowPlaylist(false)}
             >
               <Text style={styles.closePlaylistButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Settings Modal */}
+      <Modal
+        visible={showSettings}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowSettings(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSettings(false)}
+        >
+          <View style={styles.settingsModal} onStartShouldSetResponder={() => true}>
+            <Text style={styles.settingsTitle}>Player Settings</Text>
+            <Text style={styles.settingsSubtitle}>Player {playerNumber}</Text>
+
+            {/* Crossfade Setting */}
+            <View style={styles.settingRow}>
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingLabel}>Crossfade</Text>
+                <Text style={styles.settingDescription}>
+                  Smooth transition between tracks
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.toggle, crossfadeEnabled && styles.toggleActive]}
+                onPress={() => setCrossfadeEnabled(!crossfadeEnabled)}
+              >
+                <View style={[styles.toggleThumb, crossfadeEnabled && styles.toggleThumbActive]} />
+              </TouchableOpacity>
+            </View>
+
+            {crossfadeEnabled && (
+              <View style={styles.settingRow}>
+                <Text style={styles.settingLabel}>Crossfade Duration: {crossfadeDuration / 1000}s</Text>
+                <Slider
+                  style={styles.durationSlider}
+                  minimumValue={1000}
+                  maximumValue={10000}
+                  step={1000}
+                  value={crossfadeDuration}
+                  onValueChange={(v) => setCrossfadeDuration(v)}
+                  minimumTrackTintColor={colors.primary}
+                  maximumTrackTintColor={colors.border}
+                  thumbTintColor={colors.primary}
+                />
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={styles.closeSettingsButton}
+              onPress={() => setShowSettings(false)}
+            >
+              <Text style={styles.closeSettingsButtonText}>Done</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -869,27 +1210,38 @@ const styles = StyleSheet.create({
   },
   playlistItem: {
     flexDirection: 'row',
-    paddingVertical: 6,
+    paddingVertical: 8,
     paddingHorizontal: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.border + '30',
+    alignItems: 'center',
   },
   activePlaylistItem: {
     backgroundColor: colors.primary + '20',
   },
   playlistIndex: {
-    fontSize: 10,
+    fontSize: 12,
     color: colors.textMuted,
-    width: 24,
+    width: 28,
   },
   playlistItemText: {
     flex: 1,
-    fontSize: 10,
+    fontSize: 13,
     color: colors.textPrimary,
   },
   activePlaylistItemText: {
     color: colors.primary,
     fontWeight: '600',
+  },
+  favoriteButton: {
+    padding: 4,
+    marginLeft: 8,
+  },
+  favoriteIcon: {
+    fontSize: 16,
+  },
+  favoriteIconActive: {
+    color: '#ff6b6b',
   },
   playerArea: {
     padding: 8,
@@ -923,12 +1275,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
+  trackTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
   trackTitle: {
     fontSize: 14,
     fontWeight: 'bold',
     color: colors.textPrimary,
     marginBottom: 4,
     textAlign: 'center',
+  },
+  trackFavoriteButton: {
+    padding: 4,
+  },
+  trackFavoriteIcon: {
+    fontSize: 18,
   },
   trackArtist: {
     fontSize: 12,
@@ -945,16 +1309,46 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
-  progressSlider: {
+  sliderContainer: {
     flex: 1,
+    position: 'relative',
     marginHorizontal: 8,
+  },
+  progressSlider: {
+    width: '100%',
     height: 32,
+  },
+  abMarker: {
+    position: 'absolute',
+    top: 4,
+    width: 3,
+    height: 24,
+    borderRadius: 2,
+  },
+  markerA: {
+    backgroundColor: '#00ff00',
+  },
+  markerB: {
+    backgroundColor: '#ff0000',
   },
   timeText: {
     fontSize: 11,
     fontWeight: '600',
     color: colors.textSecondary,
     width: 40,
+  },
+  abRepeatIndicator: {
+    backgroundColor: colors.primary + '20',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    marginBottom: 8,
+    alignSelf: 'center',
+  },
+  abRepeatText: {
+    fontSize: 11,
+    color: colors.primary,
+    fontWeight: '600',
   },
   mainContentContainer: {
     flexDirection: 'column',
@@ -1081,6 +1475,37 @@ const styles = StyleSheet.create({
     fontSize: 32,
     color: colors.background,
   },
+  extraControlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+    marginTop: 8,
+  },
+  extraButton: {
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    minWidth: 70,
+  },
+  extraButtonActive: {
+    backgroundColor: colors.primary + '20',
+    borderColor: colors.primary,
+    borderWidth: 2,
+  },
+  extraButtonText: {
+    fontSize: 16,
+    color: colors.textPrimary,
+    fontWeight: 'bold',
+  },
+  extraButtonLabel: {
+    fontSize: 9,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
   playbackOptions: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -1136,9 +1561,13 @@ const styles = StyleSheet.create({
   },
   settingRow: {
     marginBottom: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   settingInfo: {
-    marginBottom: 12,
+    flex: 1,
+    marginRight: 12,
   },
   settingLabel: {
     fontSize: 16,
@@ -1178,6 +1607,7 @@ const styles = StyleSheet.create({
   durationSlider: {
     width: '100%',
     height: 40,
+    marginTop: 8,
   },
   closeSettingsButton: {
     backgroundColor: colors.primary,
@@ -1208,7 +1638,38 @@ const styles = StyleSheet.create({
   playlistModalSubtitle: {
     fontSize: 14,
     color: colors.textSecondary,
-    marginBottom: 16,
+    marginBottom: 12,
+  },
+  searchSortBar: {
+    flexDirection: 'row',
+    marginBottom: 12,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: colors.textPrimary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  sortButton: {
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    minWidth: 44,
+  },
+  sortButtonText: {
+    fontSize: 16,
+    color: colors.textPrimary,
   },
   playlistModalList: {
     flexGrow: 0,

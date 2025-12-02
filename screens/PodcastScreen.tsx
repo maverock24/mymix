@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,8 +10,10 @@ import {
   FlatList,
   Image,
   ActivityIndicator,
+  Modal,
+  ScrollView,
 } from 'react-native';
-import { Audio, AVPlaybackStatus } from 'expo-audio';
+import { Audio, AVPlaybackStatus } from 'expo-av';
 import Slider from '@react-native-community/slider';
 import { colors } from '../theme/colors';
 import {
@@ -19,9 +21,18 @@ import {
   Podcast,
   Episode,
   EpisodeProgress,
+  QueueItem,
+  DownloadedEpisode,
+  PodcastSettings,
+  SortOption,
+  FilterOption,
+  Chapter,
 } from '../services/podcastStorage';
 
+const PLAYBACK_SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+
 export const PodcastScreen: React.FC = () => {
+  // Podcast/Episode state
   const [savedPodcasts, setSavedPodcasts] = useState<Podcast[]>([]);
   const [isLoadingPodcasts, setIsLoadingPodcasts] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -30,20 +41,69 @@ export const PodcastScreen: React.FC = () => {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [selectedPodcast, setSelectedPodcast] = useState<Podcast | null>(null);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [filteredEpisodes, setFilteredEpisodes] = useState<Episode[]>([]);
   const [episodeProgress, setEpisodeProgress] = useState<Map<string, EpisodeProgress>>(new Map());
   const [isLoadingEpisodes, setIsLoadingEpisodes] = useState(false);
+  const [addingPodcastId, setAddingPodcastId] = useState<string | null>(null);
+
+  // Playback state
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentEpisode, setCurrentEpisode] = useState<Episode | null>(null);
+  const [currentPodcast, setCurrentPodcast] = useState<Podcast | null>(null);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isBuffering, setIsBuffering] = useState(false);
-  const [addingPodcastId, setAddingPodcastId] = useState<string | null>(null);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
 
-  const progressSaveInterval = useRef<NodeJS.Timeout | null>(null);
+  // Queue state
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [showQueueModal, setShowQueueModal] = useState(false);
 
+  // Filter/Sort state
+  const [sortOption, setSortOption] = useState<SortOption>('newest');
+  const [filterOption, setFilterOption] = useState<FilterOption>('all');
+  const [showFilterModal, setShowFilterModal] = useState(false);
+
+  // Sleep timer state
+  const [sleepTimerMinutes, setSleepTimerMinutes] = useState<number | null>(null);
+  const [sleepTimerEndTime, setSleepTimerEndTime] = useState<number | null>(null);
+  const [sleepTimerRemaining, setSleepTimerRemaining] = useState<number | null>(null);
+  const [showSleepTimerModal, setShowSleepTimerModal] = useState(false);
+  const [sleepAtEndOfEpisode, setSleepAtEndOfEpisode] = useState(false);
+
+  // Download state
+  const [downloads, setDownloads] = useState<DownloadedEpisode[]>([]);
+  const [downloadingEpisodes, setDownloadingEpisodes] = useState<Map<string, number>>(new Map());
+
+  // Settings state
+  const [settings, setSettings] = useState<PodcastSettings | null>(null);
+
+  // Chapter state
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
+  const [showChaptersModal, setShowChaptersModal] = useState(false);
+
+  // Episode details modal
+  const [showEpisodeDetails, setShowEpisodeDetails] = useState(false);
+  const [detailEpisode, setDetailEpisode] = useState<Episode | null>(null);
+
+  // Speed picker modal
+  const [showSpeedModal, setShowSpeedModal] = useState(false);
+
+  // Refs
+  const progressSaveInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sleepTimerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastPauseTime = useRef<number | null>(null);
+  const autoRewindApplied = useRef(false);
+
+  // Initialize
   useEffect(() => {
     loadSavedPodcasts();
+    loadQueue();
+    loadDownloads();
+    loadSettings();
+
     return () => {
       if (sound) {
         sound.unloadAsync();
@@ -51,8 +111,61 @@ export const PodcastScreen: React.FC = () => {
       if (progressSaveInterval.current) {
         clearInterval(progressSaveInterval.current);
       }
+      if (sleepTimerInterval.current) {
+        clearInterval(sleepTimerInterval.current);
+      }
     };
   }, []);
+
+  // Apply filter/sort when episodes or options change
+  useEffect(() => {
+    if (episodes.length > 0) {
+      const filtered = PodcastStorageService.filterAndSortEpisodes(
+        episodes,
+        episodeProgress,
+        filterOption,
+        sortOption
+      );
+      setFilteredEpisodes(filtered);
+    }
+  }, [episodes, episodeProgress, filterOption, sortOption]);
+
+  // Update current chapter based on position
+  useEffect(() => {
+    if (chapters.length > 0 && position > 0) {
+      const chapter = chapters.find((ch, index) => {
+        const nextChapter = chapters[index + 1];
+        return position >= ch.startTime && (!nextChapter || position < nextChapter.startTime);
+      });
+      if (chapter && chapter !== currentChapter) {
+        setCurrentChapter(chapter);
+      }
+    }
+  }, [position, chapters]);
+
+  // Sleep timer countdown
+  useEffect(() => {
+    if (sleepTimerEndTime && isPlaying) {
+      sleepTimerInterval.current = setInterval(() => {
+        const remaining = sleepTimerEndTime - Date.now();
+        if (remaining <= 0) {
+          handleSleepTimerTrigger();
+        } else {
+          setSleepTimerRemaining(remaining);
+        }
+      }, 1000);
+    } else {
+      if (sleepTimerInterval.current) {
+        clearInterval(sleepTimerInterval.current);
+      }
+    }
+
+    return () => {
+      if (sleepTimerInterval.current) {
+        clearInterval(sleepTimerInterval.current);
+      }
+    };
+  }, [sleepTimerEndTime, isPlaying]);
 
   const loadSavedPodcasts = async () => {
     setIsLoadingPodcasts(true);
@@ -64,6 +177,22 @@ export const PodcastScreen: React.FC = () => {
     } finally {
       setIsLoadingPodcasts(false);
     }
+  };
+
+  const loadQueue = async () => {
+    const q = await PodcastStorageService.getQueue();
+    setQueue(q);
+  };
+
+  const loadDownloads = async () => {
+    const d = await PodcastStorageService.getDownloads();
+    setDownloads(d);
+  };
+
+  const loadSettings = async () => {
+    const s = await PodcastStorageService.getSettings();
+    setSettings(s);
+    setPlaybackSpeed(s.defaultPlaybackSpeed);
   };
 
   const searchPodcasts = async () => {
@@ -88,9 +217,6 @@ export const PodcastScreen: React.FC = () => {
 
       const data = await response.json();
 
-      console.log('iTunes API response:', data);
-
-      // Filter and validate results - only include podcasts with feedUrl
       const results: Podcast[] = (data.results || [])
         .filter((item: any) => {
           return item.collectionId &&
@@ -106,7 +232,6 @@ export const PodcastScreen: React.FC = () => {
           imageUrl: item.artworkUrl600 || item.artworkUrl100 || '',
         }));
 
-      console.log(`Found ${results.length} valid podcasts`);
       setSearchResults(results);
     } catch (error) {
       console.error('Error searching podcasts:', error);
@@ -131,8 +256,6 @@ export const PodcastScreen: React.FC = () => {
     try {
       const updated = await PodcastStorageService.addPodcast(podcast);
       setSavedPodcasts(updated);
-
-      // Clear search and return to subscribed podcasts view
       setSearchQuery('');
       setSearchResults([]);
       setShowSearchResults(false);
@@ -151,41 +274,28 @@ export const PodcastScreen: React.FC = () => {
   };
 
   const handleRemovePodcast = (id: string, title: string) => {
+    const doRemove = async () => {
+      const updated = await PodcastStorageService.removePodcast(id);
+      setSavedPodcasts(updated);
+      if (selectedPodcast?.id === id) {
+        setSelectedPodcast(null);
+        setEpisodes([]);
+        if (sound) {
+          await sound.unloadAsync();
+          setSound(null);
+          setCurrentEpisode(null);
+        }
+      }
+    };
+
     if (Platform.OS !== 'web') {
       Alert.alert('Remove Podcast', `Remove "${title}"?`, [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            const updated = await PodcastStorageService.removePodcast(id);
-            setSavedPodcasts(updated);
-            if (selectedPodcast?.id === id) {
-              setSelectedPodcast(null);
-              setEpisodes([]);
-              if (sound) {
-                await sound.unloadAsync();
-                setSound(null);
-                setCurrentEpisode(null);
-              }
-            }
-          },
-        },
+        { text: 'Remove', style: 'destructive', onPress: doRemove },
       ]);
     } else {
       if (confirm(`Remove podcast "${title}"?`)) {
-        PodcastStorageService.removePodcast(id).then((updated) => {
-          setSavedPodcasts(updated);
-          if (selectedPodcast?.id === id) {
-            setSelectedPodcast(null);
-            setEpisodes([]);
-            if (sound) {
-              sound.unloadAsync();
-              setSound(null);
-              setCurrentEpisode(null);
-            }
-          }
-        });
+        doRemove();
       }
     }
   };
@@ -195,27 +305,22 @@ export const PodcastScreen: React.FC = () => {
     setIsLoadingEpisodes(true);
 
     try {
-      // First check if we have cached episodes
       let cachedEpisodes = await PodcastStorageService.getEpisodesForPodcast(podcast.id);
 
       if (cachedEpisodes.length > 0) {
         setEpisodes(cachedEpisodes);
-        // Load progress for these episodes
         const progress = await PodcastStorageService.getProgressForPodcast(podcast.id);
         setEpisodeProgress(progress);
         setIsLoadingEpisodes(false);
       }
 
-      // Fetch fresh episodes from RSS
       const response = await fetch(podcast.feedUrl);
       const rssText = await response.text();
       const freshEpisodes = parseRSSFeed(rssText, podcast.id);
 
-      // Save episodes to cache
       await PodcastStorageService.saveEpisodesForPodcast(podcast.id, freshEpisodes);
       setEpisodes(freshEpisodes);
 
-      // Load progress for episodes
       const progress = await PodcastStorageService.getProgressForPodcast(podcast.id);
       setEpisodeProgress(progress);
     } catch (error) {
@@ -238,21 +343,25 @@ export const PodcastScreen: React.FC = () => {
         .map((item, index) => {
           const titleMatch = item.match(/<title>(.*?)<\/title>/s);
           const descMatch = item.match(/<description>(.*?)<\/description>/s);
+          const contentMatch = item.match(/<content:encoded>(.*?)<\/content:encoded>/s);
           const enclosureMatch = item.match(/<enclosure[^>]*url="([^"]*)"[^>]*>/);
           const durationMatch = item.match(/<itunes:duration>(.*?)<\/itunes:duration>/s);
           const pubDateMatch = item.match(/<pubDate>(.*?)<\/pubDate>/s);
+          const imageMatch = item.match(/<itunes:image[^>]*href="([^"]*)"[^>]*>/);
+          const chaptersMatch = item.match(/<psc:chapters>(.*?)<\/psc:chapters>/s);
 
           const title = titleMatch
             ? titleMatch[1].replace(/<!\[CDATA\[(.*?)\]\]>/s, '$1').trim()
             : `Episode ${index + 1}`;
-          const description = descMatch
-            ? descMatch[1]
+          const description = (contentMatch || descMatch)
+            ? (contentMatch || descMatch)![1]
                 .replace(/<!\[CDATA\[(.*?)\]\]>/s, '$1')
                 .replace(/<[^>]*>/g, '')
                 .trim()
             : '';
           const audioUrl = enclosureMatch ? enclosureMatch[1] : '';
           const pubDate = pubDateMatch ? new Date(pubDateMatch[1]).toLocaleDateString() : '';
+          const imageUrl = imageMatch ? imageMatch[1] : undefined;
 
           // Parse duration
           let duration: number | undefined;
@@ -270,6 +379,25 @@ export const PodcastScreen: React.FC = () => {
             }
           }
 
+          // Parse chapters (Podcast Standard Chapter format)
+          let chapters: Chapter[] | undefined;
+          if (chaptersMatch) {
+            const chapterRegex = /<psc:chapter[^>]*start="([^"]*)"[^>]*title="([^"]*)"[^>]*>/g;
+            let match;
+            chapters = [];
+            while ((match = chapterRegex.exec(chaptersMatch[1])) !== null) {
+              const [, startStr, chapterTitle] = match;
+              const timeParts = startStr.split(':').map(Number);
+              let startTime = 0;
+              if (timeParts.length === 3) {
+                startTime = (timeParts[0] * 3600 + timeParts[1] * 60 + timeParts[2]) * 1000;
+              } else if (timeParts.length === 2) {
+                startTime = (timeParts[0] * 60 + timeParts[1]) * 1000;
+              }
+              chapters.push({ title: chapterTitle, startTime });
+            }
+          }
+
           const episodeId = `${podcastId}-episode-${index}`;
 
           return {
@@ -280,6 +408,8 @@ export const PodcastScreen: React.FC = () => {
             audioUrl,
             pubDate,
             duration,
+            imageUrl,
+            chapters,
           };
         })
         .filter((ep) => ep.audioUrl);
@@ -289,26 +419,32 @@ export const PodcastScreen: React.FC = () => {
     }
   };
 
-  const handlePlayEpisode = async (episode: Episode) => {
+  const handlePlayEpisode = async (episode: Episode, podcast?: Podcast) => {
     try {
       console.log('[Podcast] Playing episode:', episode.title);
-      console.log('[Podcast] Audio URL:', episode.audioUrl);
       setIsBuffering(true);
 
       // Stop current playback
       if (sound) {
-        console.log('[Podcast] Stopping current playback...');
         await saveCurrentProgress();
         await sound.unloadAsync();
         setSound(null);
       }
 
-      // Check if we have saved progress
-      const savedProgress = await PodcastStorageService.getEpisodeProgress(episode.id);
-      console.log('[Podcast] Saved progress:', savedProgress);
+      // Check for downloaded version
+      const downloaded = await PodcastStorageService.getDownloadedEpisode(episode.id);
+      const audioUri = downloaded?.localUri || episode.audioUrl;
 
-      // Set audio mode first
-      console.log('[Podcast] Setting audio mode...');
+      // Check saved progress
+      const savedProgress = await PodcastStorageService.getEpisodeProgress(episode.id);
+      let startPosition = savedProgress && !savedProgress.completed ? savedProgress.position : 0;
+
+      // Apply auto-rewind if resuming after a pause
+      if (startPosition > 0 && settings?.autoRewindSeconds && settings.autoRewindSeconds > 0) {
+        startPosition = Math.max(0, startPosition - (settings.autoRewindSeconds * 1000));
+      }
+
+      // Set audio mode
       await Audio.setAudioModeAsync({
         playsInSilentModeIOS: true,
         staysActiveInBackground: true,
@@ -317,32 +453,40 @@ export const PodcastScreen: React.FC = () => {
         interruptionModeIOS: 2,
       });
 
-      // Load and play new episode
-      console.log('[Podcast] Creating sound...');
+      // Create and play sound
       const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri: episode.audioUrl },
+        { uri: audioUri },
         {
           shouldPlay: true,
-          positionMillis: savedProgress && !savedProgress.completed ? savedProgress.position : 0,
+          positionMillis: startPosition,
+          rate: playbackSpeed,
+          shouldCorrectPitch: true,
         }
       );
 
-      console.log('[Podcast] Sound created successfully');
       setSound(newSound);
       setCurrentEpisode(episode);
+      setCurrentPodcast(podcast || selectedPodcast);
       setIsPlaying(true);
       setIsBuffering(false);
+      setChapters(episode.chapters || []);
+      setCurrentChapter(null);
+      lastPauseTime.current = null;
+      autoRewindApplied.current = false;
 
-      // Set up status update handler
       newSound.setOnPlaybackStatusUpdate(onPlaybackStatusUpdate);
-
-      // Start auto-saving progress
       startProgressSaving();
+
+      // Remove from queue if it was queued
+      await PodcastStorageService.removeFromQueue(episode.id);
+      loadQueue();
     } catch (error) {
       console.error('[Podcast] Error playing episode:', error);
       setIsBuffering(false);
-      const errorMsg = error.message || error.toString();
-      Alert.alert('Playback Error', `Failed to play episode: ${errorMsg}`);
+      const errorMsg = (error as Error).message || String(error);
+      if (Platform.OS !== 'web') {
+        Alert.alert('Playback Error', `Failed to play episode: ${errorMsg}`);
+      }
     }
   };
 
@@ -365,6 +509,16 @@ export const PodcastScreen: React.FC = () => {
   const handleEpisodeFinished = async () => {
     if (!currentEpisode) return;
 
+    // Check sleep at end of episode
+    if (sleepAtEndOfEpisode) {
+      cancelSleepTimer();
+      if (sound) {
+        await sound.pauseAsync();
+      }
+      setIsPlaying(false);
+      return;
+    }
+
     // Mark as completed
     await PodcastStorageService.saveEpisodeProgress({
       episodeId: currentEpisode.id,
@@ -375,7 +529,7 @@ export const PodcastScreen: React.FC = () => {
       completed: true,
     });
 
-    // Update local progress map
+    // Update local progress
     const updatedProgress = new Map(episodeProgress);
     updatedProgress.set(currentEpisode.id, {
       episodeId: currentEpisode.id,
@@ -387,7 +541,14 @@ export const PodcastScreen: React.FC = () => {
     });
     setEpisodeProgress(updatedProgress);
 
-    setIsPlaying(false);
+    // Play next in queue
+    const nextItem = await PodcastStorageService.popFromQueue();
+    if (nextItem) {
+      loadQueue();
+      handlePlayEpisode(nextItem.episode, nextItem.podcast);
+    } else {
+      setIsPlaying(false);
+    }
   };
 
   const saveCurrentProgress = async () => {
@@ -399,10 +560,8 @@ export const PodcastScreen: React.FC = () => {
         const currentPosition = status.positionMillis || 0;
         const currentDuration = status.durationMillis || 0;
 
-        // Don't save if less than 5 seconds played
         if (currentPosition < 5000) return;
 
-        // Consider completed if within last 30 seconds
         const completed = currentDuration - currentPosition < 30000;
 
         await PodcastStorageService.saveEpisodeProgress({
@@ -423,8 +582,6 @@ export const PodcastScreen: React.FC = () => {
     if (progressSaveInterval.current) {
       clearInterval(progressSaveInterval.current);
     }
-
-    // Save progress every 10 seconds
     progressSaveInterval.current = setInterval(() => {
       saveCurrentProgress();
     }, 10000);
@@ -437,8 +594,19 @@ export const PodcastScreen: React.FC = () => {
       if (isPlaying) {
         await sound.pauseAsync();
         await saveCurrentProgress();
+        lastPauseTime.current = Date.now();
       } else {
+        // Apply auto-rewind if paused for more than 5 minutes
+        if (lastPauseTime.current && settings?.autoRewindSeconds) {
+          const pauseDuration = Date.now() - lastPauseTime.current;
+          if (pauseDuration > 5 * 60 * 1000 && !autoRewindApplied.current) {
+            const newPosition = Math.max(0, position - (settings.autoRewindSeconds * 1000));
+            await sound.setPositionAsync(newPosition);
+            autoRewindApplied.current = true;
+          }
+        }
         await sound.playAsync();
+        lastPauseTime.current = null;
       }
     } catch (error) {
       console.error('Error toggling playback:', error);
@@ -447,7 +615,6 @@ export const PodcastScreen: React.FC = () => {
 
   const handleSeek = async (value: number) => {
     if (!sound) return;
-
     try {
       await sound.setPositionAsync(value);
     } catch (error) {
@@ -457,13 +624,146 @@ export const PodcastScreen: React.FC = () => {
 
   const handleSkip = async (seconds: number) => {
     if (!sound) return;
-
     try {
       const newPosition = Math.max(0, Math.min(duration, position + seconds * 1000));
       await sound.setPositionAsync(newPosition);
     } catch (error) {
       console.error('Error skipping:', error);
     }
+  };
+
+  const handleSpeedChange = async (speed: number) => {
+    setPlaybackSpeed(speed);
+    if (sound) {
+      try {
+        await sound.setRateAsync(speed, true);
+      } catch (error) {
+        console.error('Error changing speed:', error);
+      }
+    }
+    setShowSpeedModal(false);
+  };
+
+  const handleChapterSelect = async (chapter: Chapter) => {
+    if (sound) {
+      await sound.setPositionAsync(chapter.startTime);
+    }
+    setShowChaptersModal(false);
+  };
+
+  // Queue management
+  const handleAddToQueue = async (episode: Episode) => {
+    if (!selectedPodcast) return;
+    const updated = await PodcastStorageService.addToQueue(episode, selectedPodcast);
+    setQueue(updated);
+    if (Platform.OS !== 'web') {
+      Alert.alert('Added to Queue', `"${episode.title}" added to Up Next`);
+    }
+  };
+
+  const handleRemoveFromQueue = async (episodeId: string) => {
+    const updated = await PodcastStorageService.removeFromQueue(episodeId);
+    setQueue(updated);
+  };
+
+  const handlePlayNext = async (episode: Episode) => {
+    if (!selectedPodcast) return;
+    // Add to front of queue
+    const currentQueue = await PodcastStorageService.getQueue();
+    const newItem: QueueItem = {
+      episode,
+      podcast: selectedPodcast,
+      addedAt: Date.now(),
+    };
+    await PodcastStorageService.saveQueue([newItem, ...currentQueue.filter(q => q.episode.id !== episode.id)]);
+    loadQueue();
+    if (Platform.OS !== 'web') {
+      Alert.alert('Play Next', `"${episode.title}" will play next`);
+    }
+  };
+
+  // Sleep timer
+  const handleSetSleepTimer = (minutes: number | null, atEndOfEpisode: boolean = false) => {
+    if (minutes === null && !atEndOfEpisode) {
+      cancelSleepTimer();
+    } else if (atEndOfEpisode) {
+      setSleepAtEndOfEpisode(true);
+      setSleepTimerMinutes(null);
+      setSleepTimerEndTime(null);
+      setSleepTimerRemaining(null);
+    } else if (minutes) {
+      setSleepTimerMinutes(minutes);
+      setSleepTimerEndTime(Date.now() + minutes * 60 * 1000);
+      setSleepTimerRemaining(minutes * 60 * 1000);
+      setSleepAtEndOfEpisode(false);
+    }
+    setShowSleepTimerModal(false);
+  };
+
+  const cancelSleepTimer = () => {
+    setSleepTimerMinutes(null);
+    setSleepTimerEndTime(null);
+    setSleepTimerRemaining(null);
+    setSleepAtEndOfEpisode(false);
+  };
+
+  const handleSleepTimerTrigger = async () => {
+    if (sound) {
+      await sound.pauseAsync();
+    }
+    setIsPlaying(false);
+    cancelSleepTimer();
+  };
+
+  // Downloads
+  const handleDownloadEpisode = async (episode: Episode) => {
+    if (Platform.OS === 'web') {
+      Alert.alert('Info', 'Downloads are not available on web');
+      return;
+    }
+
+    const progress = new Map(downloadingEpisodes);
+    progress.set(episode.id, 0);
+    setDownloadingEpisodes(progress);
+
+    const result = await PodcastStorageService.downloadEpisode(
+      episode,
+      episode.podcastId,
+      (p) => {
+        const updated = new Map(downloadingEpisodes);
+        updated.set(episode.id, p);
+        setDownloadingEpisodes(updated);
+      }
+    );
+
+    progress.delete(episode.id);
+    setDownloadingEpisodes(new Map(progress));
+
+    if (result) {
+      loadDownloads();
+    }
+  };
+
+  const handleDeleteDownload = async (episodeId: string) => {
+    await PodcastStorageService.deleteDownload(episodeId);
+    loadDownloads();
+  };
+
+  // Mark played/unplayed
+  const handleMarkAsPlayed = async (episode: Episode) => {
+    await PodcastStorageService.markEpisodeAsPlayed(
+      episode.id,
+      episode.podcastId,
+      episode.duration || 0
+    );
+    const progress = await PodcastStorageService.getProgressForPodcast(episode.podcastId);
+    setEpisodeProgress(progress);
+  };
+
+  const handleMarkAsUnplayed = async (episode: Episode) => {
+    await PodcastStorageService.markEpisodeAsUnplayed(episode.id);
+    const progress = await PodcastStorageService.getProgressForPodcast(episode.podcastId);
+    setEpisodeProgress(progress);
   };
 
   const formatTime = (millis: number): string => {
@@ -473,9 +773,7 @@ export const PodcastScreen: React.FC = () => {
     const seconds = totalSeconds % 60;
 
     if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds
-        .toString()
-        .padStart(2, '0')}`;
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     }
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
@@ -485,6 +783,55 @@ export const PodcastScreen: React.FC = () => {
     if (!progress || progress.completed) return 0;
     if (progress.duration === 0) return 0;
     return (progress.position / progress.duration) * 100;
+  };
+
+  const isDownloaded = (episodeId: string): boolean => {
+    return downloads.some(d => d.episodeId === episodeId);
+  };
+
+  const isDownloading = (episodeId: string): boolean => {
+    return downloadingEpisodes.has(episodeId);
+  };
+
+  const getDownloadProgress = (episodeId: string): number => {
+    return downloadingEpisodes.get(episodeId) || 0;
+  };
+
+  // Render episode action menu
+  const showEpisodeActions = (episode: Episode) => {
+    const progress = episodeProgress.get(episode.id);
+    const isCompleted = progress?.completed || false;
+    const downloaded = isDownloaded(episode.id);
+
+    if (Platform.OS === 'web') {
+      setDetailEpisode(episode);
+      setShowEpisodeDetails(true);
+      return;
+    }
+
+    const actions: { text: string; onPress: () => void; style?: 'cancel' | 'destructive' }[] = [
+      { text: 'Play', onPress: () => handlePlayEpisode(episode) },
+      { text: 'Add to Queue', onPress: () => handleAddToQueue(episode) },
+      { text: 'Play Next', onPress: () => handlePlayNext(episode) },
+    ];
+
+    if (isCompleted) {
+      actions.push({ text: 'Mark as Unplayed', onPress: () => handleMarkAsUnplayed(episode) });
+    } else {
+      actions.push({ text: 'Mark as Played', onPress: () => handleMarkAsPlayed(episode) });
+    }
+
+    if (Platform.OS !== 'web') {
+      if (downloaded) {
+        actions.push({ text: 'Remove Download', onPress: () => handleDeleteDownload(episode.id), style: 'destructive' });
+      } else {
+        actions.push({ text: 'Download', onPress: () => handleDownloadEpisode(episode) });
+      }
+    }
+
+    actions.push({ text: 'Cancel', onPress: () => {}, style: 'cancel' });
+
+    Alert.alert(episode.title, undefined, actions);
   };
 
   // Episode list view
@@ -497,13 +844,10 @@ export const PodcastScreen: React.FC = () => {
             onPress={() => {
               setSelectedPodcast(null);
               setEpisodes([]);
+              setFilteredEpisodes([]);
               setEpisodeProgress(new Map());
-              if (sound) {
-                saveCurrentProgress();
-                sound.unloadAsync();
-                setSound(null);
-                setIsPlaying(false);
-                setCurrentEpisode(null);
+              if (sound && currentPodcast?.id === selectedPodcast.id) {
+                // Keep playing if navigating away but same podcast
               }
             }}
           >
@@ -527,18 +871,54 @@ export const PodcastScreen: React.FC = () => {
           </View>
         </View>
 
+        {/* Filter/Sort bar */}
+        <View style={styles.filterBar}>
+          <TouchableOpacity
+            style={styles.filterButton}
+            onPress={() => setShowFilterModal(true)}
+          >
+            <Text style={styles.filterButtonText}>
+              {filterOption === 'all' ? 'All' :
+               filterOption === 'unplayed' ? 'Unplayed' :
+               filterOption === 'in_progress' ? 'In Progress' : 'Completed'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.filterButton}
+            onPress={() => {
+              const options: SortOption[] = ['newest', 'oldest', 'duration_asc', 'duration_desc'];
+              const currentIndex = options.indexOf(sortOption);
+              setSortOption(options[(currentIndex + 1) % options.length]);
+            }}
+          >
+            <Text style={styles.filterButtonText}>
+              {sortOption === 'newest' ? '↓ Newest' :
+               sortOption === 'oldest' ? '↑ Oldest' :
+               sortOption === 'duration_asc' ? '↓ Short' : '↑ Long'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.queueButton}
+            onPress={() => setShowQueueModal(true)}
+          >
+            <Text style={styles.queueButtonText}>Queue ({queue.length})</Text>
+          </TouchableOpacity>
+        </View>
+
         {isLoadingEpisodes ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={colors.primary} />
             <Text style={styles.loadingText}>Loading episodes...</Text>
           </View>
-        ) : episodes.length === 0 ? (
+        ) : filteredEpisodes.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyStateText}>No episodes available</Text>
+            <Text style={styles.emptyStateText}>
+              {filterOption === 'all' ? 'No episodes available' : `No ${filterOption.replace('_', ' ')} episodes`}
+            </Text>
           </View>
         ) : (
           <FlatList
-            data={episodes}
+            data={filteredEpisodes}
             keyExtractor={(item) => item.id}
             style={styles.episodesList}
             contentContainerStyle={styles.episodesListContent}
@@ -546,6 +926,8 @@ export const PodcastScreen: React.FC = () => {
               const progress = episodeProgress.get(item.id);
               const progressPercent = getProgressPercentage(item.id);
               const isCompleted = progress?.completed || false;
+              const downloaded = isDownloaded(item.id);
+              const downloading = isDownloading(item.id);
 
               return (
                 <TouchableOpacity
@@ -554,11 +936,17 @@ export const PodcastScreen: React.FC = () => {
                     currentEpisode?.id === item.id && styles.episodeItemActive,
                   ]}
                   onPress={() => handlePlayEpisode(item)}
+                  onLongPress={() => showEpisodeActions(item)}
                 >
                   <View style={styles.episodeInfo}>
                     <View style={styles.episodeTitleRow}>
-                      <Text style={styles.episodeTitle}>{item.title}</Text>
-                      {isCompleted && <Text style={styles.completedBadge}>✓</Text>}
+                      <Text style={[styles.episodeTitle, isCompleted && styles.episodeTitleCompleted]}>
+                        {item.title}
+                      </Text>
+                      <View style={styles.episodeBadges}>
+                        {downloaded && <Text style={styles.downloadedBadge}>↓</Text>}
+                        {isCompleted && <Text style={styles.completedBadge}>✓</Text>}
+                      </View>
                     </View>
                     {item.description && (
                       <Text style={styles.episodeDescription} numberOfLines={2}>
@@ -574,32 +962,57 @@ export const PodcastScreen: React.FC = () => {
                           {formatTime(item.duration)}
                         </Text>
                       )}
+                      {item.chapters && item.chapters.length > 0 && (
+                        <Text style={styles.chaptersBadge}>{item.chapters.length} chapters</Text>
+                      )}
                     </View>
                     {progressPercent > 0 && (
                       <View style={styles.progressBarContainer}>
-                        <View
-                          style={[
-                            styles.progressBar,
-                            { width: `${progressPercent}%` },
-                          ]}
-                        />
+                        <View style={[styles.progressBar, { width: `${progressPercent}%` }]} />
+                      </View>
+                    )}
+                    {downloading && (
+                      <View style={styles.downloadProgressContainer}>
+                        <View style={[styles.downloadProgressBar, { width: `${getDownloadProgress(item.id) * 100}%` }]} />
                       </View>
                     )}
                   </View>
-                  {currentEpisode?.id === item.id && (
-                    <Text style={styles.playingIndicator}>
-                      {isBuffering ? '⏳' : isPlaying ? '▶' : '⏸'}
-                    </Text>
-                  )}
+                  <View style={styles.episodeActions}>
+                    {currentEpisode?.id === item.id ? (
+                      <Text style={styles.playingIndicator}>
+                        {isBuffering ? '⏳' : isPlaying ? '▶' : '⏸'}
+                      </Text>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.moreButton}
+                        onPress={() => showEpisodeActions(item)}
+                      >
+                        <Text style={styles.moreButtonText}>⋮</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </TouchableOpacity>
               );
             }}
           />
         )}
 
+        {/* Player */}
         {currentEpisode && (
           <View style={styles.player}>
             <View style={styles.playerContent}>
+              {/* Chapter indicator */}
+              {currentChapter && (
+                <TouchableOpacity
+                  style={styles.chapterIndicator}
+                  onPress={() => setShowChaptersModal(true)}
+                >
+                  <Text style={styles.chapterIndicatorText} numberOfLines={1}>
+                    📑 {currentChapter.title}
+                  </Text>
+                </TouchableOpacity>
+              )}
+
               <View style={styles.playerInfo}>
                 <Text style={styles.playerTitle} numberOfLines={1}>
                   {currentEpisode.title}
@@ -646,9 +1059,311 @@ export const PodcastScreen: React.FC = () => {
                   <Text style={styles.skipButtonText}>+30s</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Extra controls row */}
+              <View style={styles.extraControls}>
+                <TouchableOpacity
+                  style={styles.extraButton}
+                  onPress={() => setShowSpeedModal(true)}
+                >
+                  <Text style={styles.extraButtonText}>{playbackSpeed}x</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.extraButton}
+                  onPress={() => setShowSleepTimerModal(true)}
+                >
+                  <Text style={styles.extraButtonText}>
+                    {sleepTimerRemaining ? `⏰ ${formatTime(sleepTimerRemaining)}` :
+                     sleepAtEndOfEpisode ? '⏰ End' : '⏰'}
+                  </Text>
+                </TouchableOpacity>
+
+                {chapters.length > 0 && (
+                  <TouchableOpacity
+                    style={styles.extraButton}
+                    onPress={() => setShowChaptersModal(true)}
+                  >
+                    <Text style={styles.extraButtonText}>📑</Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  style={styles.extraButton}
+                  onPress={() => setShowQueueModal(true)}
+                >
+                  <Text style={styles.extraButtonText}>⏭ {queue.length}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         )}
+
+        {/* Filter Modal */}
+        <Modal
+          visible={showFilterModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowFilterModal(false)}
+        >
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowFilterModal(false)}
+          >
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Filter Episodes</Text>
+              {(['all', 'unplayed', 'in_progress', 'completed'] as FilterOption[]).map((option) => (
+                <TouchableOpacity
+                  key={option}
+                  style={[styles.modalOption, filterOption === option && styles.modalOptionActive]}
+                  onPress={() => {
+                    setFilterOption(option);
+                    setShowFilterModal(false);
+                  }}
+                >
+                  <Text style={[styles.modalOptionText, filterOption === option && styles.modalOptionTextActive]}>
+                    {option === 'all' ? 'All Episodes' :
+                     option === 'unplayed' ? 'Unplayed' :
+                     option === 'in_progress' ? 'In Progress' : 'Completed'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Speed Modal */}
+        <Modal
+          visible={showSpeedModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowSpeedModal(false)}
+        >
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowSpeedModal(false)}
+          >
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Playback Speed</Text>
+              {PLAYBACK_SPEEDS.map((speed) => (
+                <TouchableOpacity
+                  key={speed}
+                  style={[styles.modalOption, playbackSpeed === speed && styles.modalOptionActive]}
+                  onPress={() => handleSpeedChange(speed)}
+                >
+                  <Text style={[styles.modalOptionText, playbackSpeed === speed && styles.modalOptionTextActive]}>
+                    {speed}x
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Sleep Timer Modal */}
+        <Modal
+          visible={showSleepTimerModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowSleepTimerModal(false)}
+        >
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowSleepTimerModal(false)}
+          >
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Sleep Timer</Text>
+              {[5, 10, 15, 30, 45, 60].map((minutes) => (
+                <TouchableOpacity
+                  key={minutes}
+                  style={[styles.modalOption, sleepTimerMinutes === minutes && styles.modalOptionActive]}
+                  onPress={() => handleSetSleepTimer(minutes)}
+                >
+                  <Text style={[styles.modalOptionText, sleepTimerMinutes === minutes && styles.modalOptionTextActive]}>
+                    {minutes} minutes
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                style={[styles.modalOption, sleepAtEndOfEpisode && styles.modalOptionActive]}
+                onPress={() => handleSetSleepTimer(null, true)}
+              >
+                <Text style={[styles.modalOptionText, sleepAtEndOfEpisode && styles.modalOptionTextActive]}>
+                  End of Episode
+                </Text>
+              </TouchableOpacity>
+              {(sleepTimerEndTime || sleepAtEndOfEpisode) && (
+                <TouchableOpacity
+                  style={[styles.modalOption, styles.cancelOption]}
+                  onPress={() => handleSetSleepTimer(null)}
+                >
+                  <Text style={styles.cancelOptionText}>Cancel Timer</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Chapters Modal */}
+        <Modal
+          visible={showChaptersModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowChaptersModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.chaptersModal}>
+              <View style={styles.chaptersHeader}>
+                <Text style={styles.modalTitle}>Chapters</Text>
+                <TouchableOpacity onPress={() => setShowChaptersModal(false)}>
+                  <Text style={styles.closeButton}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <FlatList
+                data={chapters}
+                keyExtractor={(item, index) => `chapter-${index}`}
+                renderItem={({ item, index }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.chapterItem,
+                      currentChapter === item && styles.chapterItemActive,
+                    ]}
+                    onPress={() => handleChapterSelect(item)}
+                  >
+                    <Text style={styles.chapterNumber}>{index + 1}</Text>
+                    <View style={styles.chapterInfo}>
+                      <Text style={styles.chapterTitle}>{item.title}</Text>
+                      <Text style={styles.chapterTime}>{formatTime(item.startTime)}</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </View>
+        </Modal>
+
+        {/* Queue Modal */}
+        <Modal
+          visible={showQueueModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowQueueModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.queueModal}>
+              <View style={styles.queueHeader}>
+                <Text style={styles.modalTitle}>Up Next</Text>
+                <TouchableOpacity onPress={() => setShowQueueModal(false)}>
+                  <Text style={styles.closeButton}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              {queue.length === 0 ? (
+                <View style={styles.emptyQueue}>
+                  <Text style={styles.emptyQueueText}>No episodes in queue</Text>
+                  <Text style={styles.emptyQueueSubtext}>Long press an episode to add it</Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={queue}
+                  keyExtractor={(item) => item.episode.id}
+                  renderItem={({ item, index }) => (
+                    <View style={styles.queueItem}>
+                      <Text style={styles.queueItemNumber}>{index + 1}</Text>
+                      {item.podcast.imageUrl && (
+                        <Image source={{ uri: item.podcast.imageUrl }} style={styles.queueItemImage} />
+                      )}
+                      <View style={styles.queueItemInfo}>
+                        <Text style={styles.queueItemTitle} numberOfLines={1}>{item.episode.title}</Text>
+                        <Text style={styles.queueItemPodcast} numberOfLines={1}>{item.podcast.title}</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.queueRemoveButton}
+                        onPress={() => handleRemoveFromQueue(item.episode.id)}
+                      >
+                        <Text style={styles.queueRemoveButtonText}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                />
+              )}
+              {queue.length > 0 && (
+                <TouchableOpacity
+                  style={styles.clearQueueButton}
+                  onPress={async () => {
+                    await PodcastStorageService.clearQueue();
+                    setQueue([]);
+                  }}
+                >
+                  <Text style={styles.clearQueueButtonText}>Clear Queue</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </Modal>
+
+        {/* Episode Details Modal (for web) */}
+        <Modal
+          visible={showEpisodeDetails}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowEpisodeDetails(false)}
+        >
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowEpisodeDetails(false)}
+          >
+            <View style={styles.episodeDetailsModal}>
+              {detailEpisode && (
+                <>
+                  <Text style={styles.episodeDetailsTitle}>{detailEpisode.title}</Text>
+                  <ScrollView style={styles.episodeDetailsDescription}>
+                    <Text style={styles.episodeDetailsDescriptionText}>{detailEpisode.description}</Text>
+                  </ScrollView>
+                  <View style={styles.episodeDetailsActions}>
+                    <TouchableOpacity
+                      style={styles.episodeDetailsButton}
+                      onPress={() => {
+                        handlePlayEpisode(detailEpisode);
+                        setShowEpisodeDetails(false);
+                      }}
+                    >
+                      <Text style={styles.episodeDetailsButtonText}>Play</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.episodeDetailsButton}
+                      onPress={() => {
+                        handleAddToQueue(detailEpisode);
+                        setShowEpisodeDetails(false);
+                      }}
+                    >
+                      <Text style={styles.episodeDetailsButtonText}>Add to Queue</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.episodeDetailsButton}
+                      onPress={() => {
+                        const progress = episodeProgress.get(detailEpisode.id);
+                        if (progress?.completed) {
+                          handleMarkAsUnplayed(detailEpisode);
+                        } else {
+                          handleMarkAsPlayed(detailEpisode);
+                        }
+                        setShowEpisodeDetails(false);
+                      }}
+                    >
+                      <Text style={styles.episodeDetailsButtonText}>
+                        {episodeProgress.get(detailEpisode.id)?.completed ? 'Mark Unplayed' : 'Mark Played'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </View>
+          </TouchableOpacity>
+        </Modal>
       </View>
     );
   }
@@ -656,12 +1371,10 @@ export const PodcastScreen: React.FC = () => {
   // Main view with persistent search bar
   return (
     <View style={styles.container}>
-      {/* Header with Title */}
       <View style={styles.header}>
         <Text style={styles.title}>Podcasts</Text>
       </View>
 
-      {/* Always Visible Search Bar */}
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.searchInput}
@@ -684,15 +1397,11 @@ export const PodcastScreen: React.FC = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Content Area - Search Results or Subscribed Podcasts */}
       {showSearchResults ? (
-        // Search Results View
         searchResults.length === 0 && !isSearching ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>No results found</Text>
-            <Text style={styles.emptyStateSubtext}>
-              Try a different search term
-            </Text>
+            <Text style={styles.emptyStateSubtext}>Try a different search term</Text>
           </View>
         ) : (
           <FlatList
@@ -712,10 +1421,7 @@ export const PodcastScreen: React.FC = () => {
                     disabled={isAdding}
                   >
                     {item.imageUrl && (
-                      <Image
-                        source={{ uri: item.imageUrl }}
-                        style={styles.searchResultImage}
-                      />
+                      <Image source={{ uri: item.imageUrl }} style={styles.searchResultImage} />
                     )}
                     <View style={styles.searchResultInfo}>
                       <Text style={styles.searchResultTitle}>{item.title}</Text>
@@ -723,19 +1429,14 @@ export const PodcastScreen: React.FC = () => {
                     </View>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[
-                      styles.addButton,
-                      isAdded && styles.addButtonAdded,
-                    ]}
+                    style={[styles.addButton, isAdded && styles.addButtonAdded]}
                     onPress={() => handleAddPodcast(item)}
                     disabled={isAdded || isAdding}
                   >
                     {isAdding ? (
                       <ActivityIndicator size="small" color={colors.background} />
                     ) : (
-                      <Text style={styles.addButtonText}>
-                        {isAdded ? '✓' : '+'}
-                      </Text>
+                      <Text style={styles.addButtonText}>{isAdded ? '✓' : '+'}</Text>
                     )}
                   </TouchableOpacity>
                 </View>
@@ -744,7 +1445,6 @@ export const PodcastScreen: React.FC = () => {
           />
         )
       ) : (
-        // Subscribed Podcasts View
         isLoadingPodcasts ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={colors.primary} />
@@ -753,9 +1453,7 @@ export const PodcastScreen: React.FC = () => {
         ) : savedPodcasts.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>No podcasts yet</Text>
-            <Text style={styles.emptyStateSubtext}>
-              Search above to find and add podcasts
-            </Text>
+            <Text style={styles.emptyStateSubtext}>Search above to find and add podcasts</Text>
           </View>
         ) : (
           <FlatList
@@ -773,21 +1471,14 @@ export const PodcastScreen: React.FC = () => {
                   onPress={() => handleSelectPodcast(item)}
                 >
                   {item.imageUrl ? (
-                    <Image
-                      source={{ uri: item.imageUrl }}
-                      style={styles.podcastTileImage}
-                    />
+                    <Image source={{ uri: item.imageUrl }} style={styles.podcastTileImage} />
                   ) : (
                     <View style={styles.podcastTilePlaceholder}>
                       <Text style={styles.podcastTilePlaceholderText}>🎙️</Text>
                     </View>
                   )}
-                  <Text style={styles.podcastTileTitle} numberOfLines={2}>
-                    {item.title}
-                  </Text>
-                  <Text style={styles.podcastTileArtist} numberOfLines={1}>
-                    {item.artist}
-                  </Text>
+                  <Text style={styles.podcastTileTitle} numberOfLines={2}>{item.title}</Text>
+                  <Text style={styles.podcastTileArtist} numberOfLines={1}>{item.artist}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.removeTileButton}
@@ -799,6 +1490,37 @@ export const PodcastScreen: React.FC = () => {
             )}
           />
         )
+      )}
+
+      {/* Persistent mini player when playing and not in episode view */}
+      {currentEpisode && !selectedPodcast && (
+        <TouchableOpacity
+          style={styles.miniPlayer}
+          onPress={() => {
+            if (currentPodcast) {
+              handleSelectPodcast(currentPodcast);
+            }
+          }}
+        >
+          {currentPodcast?.imageUrl && (
+            <Image source={{ uri: currentPodcast.imageUrl }} style={styles.miniPlayerImage} />
+          )}
+          <View style={styles.miniPlayerInfo}>
+            <Text style={styles.miniPlayerTitle} numberOfLines={1}>{currentEpisode.title}</Text>
+            <Text style={styles.miniPlayerPodcast} numberOfLines={1}>{currentPodcast?.title}</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.miniPlayerButton}
+            onPress={(e) => {
+              e.stopPropagation();
+              handlePauseResume();
+            }}
+          >
+            <Text style={styles.miniPlayerButtonText}>
+              {isBuffering ? '⏳' : isPlaying ? '⏸' : '▶'}
+            </Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
       )}
     </View>
   );
@@ -855,6 +1577,39 @@ const styles = StyleSheet.create({
   podcastHeaderArtist: {
     fontSize: 13,
     color: colors.textSecondary,
+  },
+  filterBar: {
+    flexDirection: 'row',
+    padding: 12,
+    gap: 8,
+    backgroundColor: colors.backgroundSecondary,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  filterButton: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filterButtonText: {
+    fontSize: 14,
+    color: colors.textPrimary,
+    fontWeight: '500',
+  },
+  queueButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginLeft: 'auto',
+  },
+  queueButtonText: {
+    fontSize: 14,
+    color: colors.background,
+    fontWeight: '600',
   },
   searchContainer: {
     flexDirection: 'row',
@@ -1084,10 +1839,28 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     flex: 1,
   },
+  episodeTitleCompleted: {
+    color: colors.textMuted,
+  },
+  episodeBadges: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   completedBadge: {
     fontSize: 18,
     color: colors.primary,
-    marginLeft: 12,
+  },
+  downloadedBadge: {
+    fontSize: 18,
+    color: colors.primary,
+  },
+  chaptersBadge: {
+    fontSize: 12,
+    color: colors.primary,
+    backgroundColor: colors.backgroundSecondary,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   episodeDescription: {
     fontSize: 15,
@@ -1120,9 +1893,30 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: colors.primary,
   },
+  downloadProgressContainer: {
+    height: 3,
+    backgroundColor: colors.border,
+    borderRadius: 2,
+    marginTop: 4,
+    overflow: 'hidden',
+  },
+  downloadProgressBar: {
+    height: '100%',
+    backgroundColor: colors.accent || colors.primary,
+  },
+  episodeActions: {
+    marginLeft: 12,
+  },
+  moreButton: {
+    padding: 8,
+  },
+  moreButtonText: {
+    fontSize: 24,
+    color: colors.textMuted,
+    fontWeight: 'bold',
+  },
   playingIndicator: {
     fontSize: 28,
-    marginLeft: 16,
   },
   player: {
     backgroundColor: colors.surface,
@@ -1132,6 +1926,16 @@ const styles = StyleSheet.create({
   },
   playerContent: {
     padding: 20,
+  },
+  chapterIndicator: {
+    backgroundColor: colors.backgroundSecondary,
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  chapterIndicatorText: {
+    fontSize: 14,
+    color: colors.textSecondary,
   },
   playerInfo: {
     marginBottom: 12,
@@ -1189,6 +1993,286 @@ const styles = StyleSheet.create({
   },
   playButtonText: {
     fontSize: 36,
+    color: colors.background,
+  },
+  extraControls: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+    marginTop: 16,
+  },
+  extraButton: {
+    backgroundColor: colors.backgroundSecondary,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  extraButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  // Modals
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 24,
+    width: '80%',
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.textPrimary,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  modalOption: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 8,
+    backgroundColor: colors.backgroundSecondary,
+  },
+  modalOptionActive: {
+    backgroundColor: colors.primary,
+  },
+  modalOptionText: {
+    fontSize: 16,
+    color: colors.textPrimary,
+    textAlign: 'center',
+  },
+  modalOptionTextActive: {
+    color: colors.background,
+    fontWeight: '600',
+  },
+  cancelOption: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  cancelOptionText: {
+    fontSize: 16,
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
+  closeButton: {
+    fontSize: 24,
+    color: colors.textMuted,
+    padding: 8,
+  },
+  // Chapters Modal
+  chaptersModal: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    width: '90%',
+    maxWidth: 500,
+    maxHeight: '80%',
+    overflow: 'hidden',
+  },
+  chaptersHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  chapterItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  chapterItemActive: {
+    backgroundColor: colors.backgroundSecondary,
+  },
+  chapterNumber: {
+    width: 32,
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textMuted,
+  },
+  chapterInfo: {
+    flex: 1,
+  },
+  chapterTitle: {
+    fontSize: 16,
+    color: colors.textPrimary,
+    marginBottom: 4,
+  },
+  chapterTime: {
+    fontSize: 14,
+    color: colors.textMuted,
+  },
+  // Queue Modal
+  queueModal: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    width: '90%',
+    maxWidth: 500,
+    maxHeight: '80%',
+    overflow: 'hidden',
+  },
+  queueHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  emptyQueue: {
+    padding: 48,
+    alignItems: 'center',
+  },
+  emptyQueueText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.textMuted,
+    marginBottom: 8,
+  },
+  emptyQueueSubtext: {
+    fontSize: 14,
+    color: colors.textMuted,
+  },
+  queueItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  queueItemNumber: {
+    width: 32,
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textMuted,
+  },
+  queueItemImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  queueItemInfo: {
+    flex: 1,
+  },
+  queueItemTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    marginBottom: 4,
+  },
+  queueItemPodcast: {
+    fontSize: 14,
+    color: colors.textMuted,
+  },
+  queueRemoveButton: {
+    padding: 8,
+  },
+  queueRemoveButtonText: {
+    fontSize: 20,
+    color: colors.textMuted,
+  },
+  clearQueueButton: {
+    padding: 16,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  clearQueueButtonText: {
+    fontSize: 16,
+    color: colors.error || '#ff4444',
+    fontWeight: '600',
+  },
+  // Episode Details Modal
+  episodeDetailsModal: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 24,
+    width: '90%',
+    maxWidth: 500,
+    maxHeight: '80%',
+  },
+  episodeDetailsTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.textPrimary,
+    marginBottom: 16,
+  },
+  episodeDetailsDescription: {
+    maxHeight: 200,
+    marginBottom: 16,
+  },
+  episodeDetailsDescriptionText: {
+    fontSize: 15,
+    color: colors.textSecondary,
+    lineHeight: 22,
+  },
+  episodeDetailsActions: {
+    gap: 8,
+  },
+  episodeDetailsButton: {
+    backgroundColor: colors.backgroundSecondary,
+    padding: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  episodeDetailsButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  // Mini Player
+  miniPlayer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderTopWidth: 2,
+    borderTopColor: colors.border,
+    padding: 12,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 12,
+  },
+  miniPlayerImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  miniPlayerInfo: {
+    flex: 1,
+  },
+  miniPlayerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    marginBottom: 2,
+  },
+  miniPlayerPodcast: {
+    fontSize: 14,
+    color: colors.textMuted,
+  },
+  miniPlayerButton: {
+    backgroundColor: colors.primary,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  miniPlayerButtonText: {
+    fontSize: 24,
     color: colors.background,
   },
 });

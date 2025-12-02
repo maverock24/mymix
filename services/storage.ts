@@ -338,4 +338,59 @@ export const StorageService = {
       console.error('[Storage] Error updating preset last used:', error);
     }
   },
+
+  // Favorites Management
+  async getFavorites(): Promise<string[]> {
+    try {
+      if (Platform.OS === 'web') {
+        const favoritesStore = localforage.createInstance({
+          name: 'mymix',
+          storeName: 'favorites',
+        });
+        const favorites = await favoritesStore.getItem<string[]>('favorite_tracks');
+        return favorites || [];
+      } else {
+        const data = await AsyncStorage.getItem('@mymix_favorites');
+        return data ? JSON.parse(data) : [];
+      }
+    } catch (error) {
+      console.error('[Storage] Error getting favorites:', error);
+      return [];
+    }
+  },
+
+  async saveFavorites(favorites: string[]): Promise<void> {
+    try {
+      if (Platform.OS === 'web') {
+        const favoritesStore = localforage.createInstance({
+          name: 'mymix',
+          storeName: 'favorites',
+        });
+        await favoritesStore.setItem('favorite_tracks', favorites);
+      } else {
+        await AsyncStorage.setItem('@mymix_favorites', JSON.stringify(favorites));
+      }
+    } catch (error) {
+      console.error('[Storage] Error saving favorites:', error);
+    }
+  },
+
+  async addFavorite(trackId: string): Promise<void> {
+    const favorites = await this.getFavorites();
+    if (!favorites.includes(trackId)) {
+      favorites.push(trackId);
+      await this.saveFavorites(favorites);
+    }
+  },
+
+  async removeFavorite(trackId: string): Promise<void> {
+    const favorites = await this.getFavorites();
+    const filtered = favorites.filter(id => id !== trackId);
+    await this.saveFavorites(filtered);
+  },
+
+  async isFavorite(trackId: string): Promise<boolean> {
+    const favorites = await this.getFavorites();
+    return favorites.includes(trackId);
+  },
 };
