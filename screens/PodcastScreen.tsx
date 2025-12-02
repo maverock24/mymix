@@ -291,10 +291,13 @@ export const PodcastScreen: React.FC = () => {
 
   const handlePlayEpisode = async (episode: Episode) => {
     try {
+      console.log('[Podcast] Playing episode:', episode.title);
+      console.log('[Podcast] Audio URL:', episode.audioUrl);
       setIsBuffering(true);
 
       // Stop current playback
       if (sound) {
+        console.log('[Podcast] Stopping current playback...');
         await saveCurrentProgress();
         await sound.unloadAsync();
         setSound(null);
@@ -302,8 +305,20 @@ export const PodcastScreen: React.FC = () => {
 
       // Check if we have saved progress
       const savedProgress = await PodcastStorageService.getEpisodeProgress(episode.id);
+      console.log('[Podcast] Saved progress:', savedProgress);
+
+      // Set audio mode first
+      console.log('[Podcast] Setting audio mode...');
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
+        shouldDuckAndroid: false,
+        interruptionModeAndroid: 2,
+        interruptionModeIOS: 2,
+      });
 
       // Load and play new episode
+      console.log('[Podcast] Creating sound...');
       const { sound: newSound } = await Audio.Sound.createAsync(
         { uri: episode.audioUrl },
         {
@@ -312,6 +327,7 @@ export const PodcastScreen: React.FC = () => {
         }
       );
 
+      console.log('[Podcast] Sound created successfully');
       setSound(newSound);
       setCurrentEpisode(episode);
       setIsPlaying(true);
@@ -323,11 +339,10 @@ export const PodcastScreen: React.FC = () => {
       // Start auto-saving progress
       startProgressSaving();
     } catch (error) {
-      console.error('Error playing episode:', error);
+      console.error('[Podcast] Error playing episode:', error);
       setIsBuffering(false);
-      if (Platform.OS !== 'web') {
-        Alert.alert('Error', 'Failed to play episode');
-      }
+      const errorMsg = error.message || error.toString();
+      Alert.alert('Playback Error', `Failed to play episode: ${errorMsg}`);
     }
   };
 

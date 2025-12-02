@@ -6,10 +6,13 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { MainPlayerScreen } from './screens/MainPlayerScreen';
 import { PodcastScreen } from './screens/PodcastScreen';
 import { colors } from './theme/colors';
+import { useAutoUpdate } from './components/AutoUpdater';
 
 const Tab = createBottomTabNavigator();
 
 export default function App() {
+  useAutoUpdate();
+  
   return (
     <NavigationContainer>
       <View style={styles.container}>

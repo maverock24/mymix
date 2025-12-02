@@ -43,15 +43,20 @@ export class PlaylistService {
         };
       } else {
         // Web - Use File System Access API for folder selection
+        console.log('[PlaylistService] Running on web platform');
+
         try {
           // @ts-ignore - File System Access API might not be in types yet
           if (typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
+            console.log('[PlaylistService] Browser supports showDirectoryPicker, prompting user...');
+
             // Modern browser with folder picker support
             // @ts-ignore
             const dirHandle = await window.showDirectoryPicker({
               mode: 'read',
             });
 
+            console.log('[PlaylistService] Directory selected, reading files...');
             const tracks: Track[] = [];
             let index = 0;
 
@@ -59,7 +64,11 @@ export class PlaylistService {
             for await (const entry of dirHandle.values()) {
               if (entry.kind === 'file') {
                 const file = await entry.getFile();
+                console.log('[PlaylistService] Found file:', file.name, 'type:', file.type);
+
                 if (this.isAudioFile(file.name)) {
+                  console.log('[PlaylistService] Processing audio file:', file.name);
+
                   // Create blob URL for the file
                   const blob = new Blob([await file.arrayBuffer()], { type: file.type });
                   const blobUrl = URL.createObjectURL(blob);
@@ -72,32 +81,45 @@ export class PlaylistService {
                     data: blob, // Store blob for web
                   });
                   index++;
+                } else {
+                  console.log('[PlaylistService] Skipping non-audio file:', file.name);
                 }
               }
             }
 
+            console.log('[PlaylistService] Loaded', tracks.length, 'tracks from folder');
             const sortedTracks = tracks.sort((a, b) => a.name.localeCompare(b.name));
 
             return {
               tracks: sortedTracks,
               selectedIndex: 0,
             };
+          } else {
+            console.log('[PlaylistService] showDirectoryPicker not available in this browser');
           }
         } catch (error) {
           // User cancelled or browser doesn't support folder picker
-          console.log('Folder picker not available or cancelled, falling back to file picker');
+          console.log('[PlaylistService] Folder picker error or cancelled:', error);
+          console.log('[PlaylistService] Falling back to file picker');
         }
 
         // Fallback to multi-file selection
+        console.log('[PlaylistService] Using DocumentPicker for multiple files...');
+
         const result = await DocumentPicker.getDocumentAsync({
           type: 'audio/*',
           copyToCacheDirectory: false,
           multiple: true,
         });
 
+        console.log('[PlaylistService] DocumentPicker result:', result);
+
         if (result.canceled) {
+          console.log('[PlaylistService] User cancelled file selection');
           return { tracks: [], selectedIndex: 0 };
         }
+
+        console.log('[PlaylistService] Selected', result.assets?.length || 0, 'files');
 
         const tracks: Track[] = result.assets.map((file, index) => ({
           id: `track_${Date.now()}_${index}`,
@@ -107,6 +129,8 @@ export class PlaylistService {
         }));
 
         const sortedTracks = tracks.sort((a, b) => a.name.localeCompare(b.name));
+
+        console.log('[PlaylistService] Returning', sortedTracks.length, 'sorted tracks');
 
         return {
           tracks: sortedTracks,

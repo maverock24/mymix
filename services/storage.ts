@@ -32,9 +32,6 @@ export interface PlayerState {
   shuffle: boolean;
   repeat: RepeatMode;
   shuffledIndices?: number[];
-  crossfadeEnabled: boolean;
-  crossfadeDuration: number; // in milliseconds (e.g., 3000 = 3 seconds)
-  gaplessEnabled: boolean;
 }
 
 export interface DualPlayerState {

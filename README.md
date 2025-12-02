@@ -135,6 +135,35 @@ eas build --platform android --profile preview  # or production
 
 OTA updates (via `eas update`) will NOT update native configurations like Android Auto support.
 
+## Deployment
+
+For automated Android deployment, a Python script is available (`scripts/deploy.py`). This script:
+1. Builds the Release APK using Gradle (optimized with parallel execution and skipped lint/test checks).
+2. Uploads the APK to a specified Google Drive folder.
+3. Updates/Creates a `version.json` file on Drive (used by the app for auto-updates).
+
+### Prerequisites
+
+- **Python Environment**: A virtual environment is set up in `venv-deploy`.
+- **Credentials**: 
+  - `credentials.json` (OAuth 2.0 Client ID) must be in the project root.
+  - `token.json` (generated after first login) stores the session.
+
+### Running the Deployment Script
+
+To run the deployment script using the pre-configured virtual environment:
+
+```bash
+./venv-deploy/bin/python3 scripts/deploy.py
+```
+
+This command will:
+- Build the APK (`./gradlew assembleRelease --parallel -x lint -x test`).
+- Authenticate with Google Drive.
+- Upload the new `app-release.apk`.
+- Update `version.json` with the new version number and download link.
+- Output the new `VERSION_JSON_URL` which needs to be updated in `components/AutoUpdater.tsx`.
+
 ## Android Auto & CarPlay Setup
 
 ### Android Auto

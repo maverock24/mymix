@@ -23,6 +23,7 @@ interface SinglePlayerProps {
   onStateChange?: (state: PlayerState) => void;
   onLoadPlaylist: () => void;
   isActiveMediaControl?: boolean;
+  isLoadingPlaylist?: boolean;
 }
 
 export interface SinglePlayerRef {
@@ -37,6 +38,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   onStateChange,
   onLoadPlaylist,
   isActiveMediaControl = false,
+  isLoadingPlaylist = false,
 }, ref) => {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -51,21 +53,32 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   const [shuffledIndices, setShuffledIndices] = useState<number[]>(initialState?.shuffledIndices || []);
   const [showPlaylist, setShowPlaylist] = useState(false);
   const [shouldAutoPlay, setShouldAutoPlay] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [crossfadeEnabled, setCrossfadeEnabled] = useState(initialState?.crossfadeEnabled ?? false);
-  const [crossfadeDuration, setCrossfadeDuration] = useState(initialState?.crossfadeDuration ?? 3000);
-  const [gaplessEnabled, setGaplessEnabled] = useState(initialState?.gaplessEnabled ?? true);
 
   const lastPositionUpdate = useRef(0);
   const POSITION_UPDATE_INTERVAL = 500;
   const blobUrl = useRef<string | null>(null);
   const isInitialLoad = useRef(true);
-  const nextSound = useRef<Audio.Sound | null>(null);
-  const isCrossfading = useRef(false);
-  const crossfadeIntervalId = useRef<NodeJS.Timeout | null>(null);
 
 
   const currentTrack = playlist?.tracks[currentTrackIndex];
+
+  // Sync currentTrackIndex when playlist changes or initialState updates
+  useEffect(() => {
+    if (playlist && initialState) {
+      if (initialState.playlistId === playlist.id) {
+        console.log(`[Player ${playerNumber}] Syncing track index from initialState:`, initialState.currentTrackIndex);
+        setCurrentTrackIndex(initialState.currentTrackIndex);
+      } else {
+        // New playlist loaded, reset to beginning
+        console.log(`[Player ${playerNumber}] New playlist loaded, resetting to track 0`);
+        setCurrentTrackIndex(0);
+      }
+    } else if (playlist && !initialState) {
+      // New playlist, no initial state
+      console.log(`[Player ${playerNumber}] Playlist loaded without initialState, starting at track 0`);
+      setCurrentTrackIndex(0);
+    }
+  }, [playlist, initialState, playerNumber]);
 
   // Initialize audio mode on mount
   useEffect(() => {
@@ -117,22 +130,30 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
         shuffle,
         repeat,
         shuffledIndices,
-        crossfadeEnabled,
-        crossfadeDuration,
-        gaplessEnabled,
       });
     }
-  }, [currentTrackIndex, position, volume, speed, isPlaying, shuffle, repeat, shuffledIndices, crossfadeEnabled, crossfadeDuration, gaplessEnabled]);
+  }, [currentTrackIndex, position, volume, speed, isPlaying, shuffle, repeat, shuffledIndices]);
 
   // Load track when index changes
   useEffect(() => {
+    console.log(`[Player ${playerNumber}] Track loading useEffect triggered:`, {
+      hasPlaylist: !!playlist,
+      currentTrackIndex,
+      hasCurrentTrack: !!currentTrack,
+      trackTitle: currentTrack?.title
+    });
+
     if (playlist && currentTrack) {
+      console.log(`[Player ${playerNumber}] Loading track at index ${currentTrackIndex}:`, currentTrack.title);
       loadTrack(currentTrack);
+    } else {
+      console.log(`[Player ${playerNumber}] Cannot load track - missing playlist or track`);
     }
+
     return () => {
       unloadSound();
     };
-  }, [currentTrackIndex, playlist]);
+  }, [currentTrackIndex, playlist, currentTrack, playerNumber]);
 
   // Media control event handlers - using refs to avoid stale closures
   const togglePlayPauseRef = useRef<(() => Promise<void>) | null>(null);
@@ -265,42 +286,15 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       URL.revokeObjectURL(blobUrl.current);
       blobUrl.current = null;
     }
-    // Also unload preloaded next sound
-    if (nextSound.current) {
-      await nextSound.current.unloadAsync();
-      nextSound.current = null;
-    }
-  };
-
-  const preloadNextTrack = async (track: Track) => {
-    if (nextSound.current) return; // Already preloaded
-
-    try {
-      let uri = track.uri;
-      if (Platform.OS === 'web' && track.data) {
-        uri = URL.createObjectURL(track.data);
-      }
-
-      const { sound: preloadedSound } = await Audio.Sound.createAsync(
-        { uri },
-        {
-          volume,
-          rate: speed,
-          shouldCorrectPitch: true,
-        }
-      );
-
-      nextSound.current = preloadedSound;
-    } catch (error) {
-      console.error('Error preloading next track:', error);
-    }
   };
 
   const loadTrack = async (track: Track) => {
     try {
+      console.log(`[Player ${playerNumber}] Loading track:`, track.title);
       setIsLoading(true);
 
-      // Set audio mode first, even for preloaded tracks
+      // Set audio mode first
+      console.log(`[Player ${playerNumber}] Setting audio mode...`);
       await Audio.setAudioModeAsync({
         playsInSilentModeIOS: true,
         staysActiveInBackground: true,
@@ -309,48 +303,31 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
         interruptionModeIOS: 2, // INTERRUPTION_MODE_IOS_DO_NOT_MIX
       });
 
-      let newSound: Audio.Sound;
+      // Standard loading
+      console.log(`[Player ${playerNumber}] Unloading previous sound...`);
+      await unloadSound();
 
-      // Use preloaded sound for gapless playback if available
-      if (gaplessEnabled && nextSound.current) {
-        newSound = nextSound.current;
-        nextSound.current = null; // Clear the ref
-
-        // Set up status callback for the preloaded sound
-        newSound.setOnPlaybackStatusUpdate(onPlaybackStatusUpdate);
-
-        // Update to current sound before unloading old one
-        const oldSound = sound;
-        setSound(newSound);
-
-        // Unload old sound
-        if (oldSound) {
-          await oldSound.unloadAsync();
-        }
-      } else {
-        // Standard loading
-        await unloadSound();
-
-        let uri = track.uri;
-        if (Platform.OS === 'web' && track.data) {
-          blobUrl.current = URL.createObjectURL(track.data);
-          uri = blobUrl.current;
-        }
-
-        const soundObject = await Audio.Sound.createAsync(
-          { uri },
-          {
-            volume,
-            rate: speed,
-            shouldCorrectPitch: true,
-            progressUpdateIntervalMillis: POSITION_UPDATE_INTERVAL,
-          },
-          onPlaybackStatusUpdate
-        );
-
-        newSound = soundObject.sound;
-        setSound(newSound);
+      let uri = track.uri;
+      if (Platform.OS === 'web' && track.data) {
+        blobUrl.current = URL.createObjectURL(track.data);
+        uri = blobUrl.current;
       }
+
+      console.log(`[Player ${playerNumber}] Creating sound from URI:`, uri);
+      const soundObject = await Audio.Sound.createAsync(
+        { uri },
+        {
+          volume,
+          rate: speed,
+          shouldCorrectPitch: true,
+          progressUpdateIntervalMillis: POSITION_UPDATE_INTERVAL,
+        },
+        onPlaybackStatusUpdate
+      );
+
+      const newSound = soundObject.sound;
+      console.log(`[Player ${playerNumber}] Sound created successfully`);
+      setSound(newSound);
 
       // On initial load, restore saved position; otherwise reset to 0
       if (isInitialLoad.current && initialState?.position) {
@@ -383,7 +360,8 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
         }
       }
     } catch (error) {
-      console.error('Error loading track:', error);
+      console.error(`[Player ${playerNumber}] Error loading track:`, error);
+      Alert.alert('Loading Error', `Failed to load track: ${error.message || error}`);
     } finally {
       setIsLoading(false);
     }
@@ -402,29 +380,12 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
           setDuration(status.durationMillis);
         }
 
-        // Preload next track for gapless playback (when within last 5 seconds)
-        if (gaplessEnabled && playlist && status.durationMillis && !nextSound.current) {
-          const timeRemaining = status.durationMillis - status.positionMillis;
-          if (timeRemaining <= 5000 && timeRemaining > 0) {
-            const nextIndex = PlaylistService.getNextTrackIndex(
-              currentTrackIndex,
-              playlist.tracks.length,
-              repeat,
-              shuffle,
-              shuffledIndices
-            );
-            if (nextIndex !== null) {
-              preloadNextTrack(playlist.tracks[nextIndex]);
-            }
-          }
-        }
-
         if (status.didJustFinish) {
           handleTrackFinish();
         }
       }
     },
-    [duration, currentTrackIndex, playlist, gaplessEnabled, repeat, shuffle, shuffledIndices]
+    [duration]
   );
 
   const handleTrackFinish = () => {
@@ -449,18 +410,28 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   };
 
   const togglePlayPause = async () => {
-    if (!sound) return;
+    console.log(`[Player ${playerNumber}] togglePlayPause called. sound:`, !!sound, 'isPlaying:', isPlaying);
+
+    if (!sound) {
+      console.warn(`[Player ${playerNumber}] Cannot play - no sound loaded`);
+      return;
+    }
 
     try {
       if (isPlaying) {
+        console.log(`[Player ${playerNumber}] Pausing...`);
         await sound.pauseAsync();
         setIsPlaying(false);
+        console.log(`[Player ${playerNumber}] Paused successfully`);
       } else {
+        console.log(`[Player ${playerNumber}] Playing...`);
         await sound.playAsync();
         setIsPlaying(true);
+        console.log(`[Player ${playerNumber}] Playing successfully`);
       }
     } catch (error) {
-      console.error('Error toggling play/pause:', error);
+      console.error(`[Player ${playerNumber}] Error toggling play/pause:`, error);
+      Alert.alert('Playback Error', `Failed to ${isPlaying ? 'pause' : 'play'}: ${error.message || error}`);
     }
   };
 
@@ -606,9 +577,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       <View style={styles.header}>
         <Text style={styles.playerLabel}>{playerNumber === 1 ? 'Main' : 'Background'}</Text>
         <View style={styles.headerButtons}>
-          <TouchableOpacity onPress={() => setShowSettings(true)} style={styles.settingsButton}>
-            <Text style={styles.settingsButtonText}>⚙️</Text>
-          </TouchableOpacity>
           <TouchableOpacity onPress={onLoadPlaylist} style={styles.loadButton}>
             <Text style={styles.loadButtonText}>📁</Text>
           </TouchableOpacity>
@@ -631,12 +599,21 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       <View style={styles.playerArea}>
         {!playlist ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>Tap 📁 to select a folder</Text>
-            <Text style={styles.emptySubtext}>
-              {Platform.OS === 'web'
-                ? 'Multiple file selection on web'
-                : 'Choose a folder with your audio files'}
-            </Text>
+            {isLoadingPlaylist ? (
+              <>
+                <ActivityIndicator size="large" color={colors.primary} style={styles.loadingIndicator} />
+                <Text style={styles.loadingText}>Loading files...</Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.emptyText}>Tap 📁 to select a folder</Text>
+                <Text style={styles.emptySubtext}>
+                  {Platform.OS === 'web'
+                    ? 'Multiple file selection on web'
+                    : 'Choose a folder with your audio files'}
+                </Text>
+              </>
+            )}
           </View>
         ) : (
           <>
@@ -722,23 +699,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                     </Text>
                   </TouchableOpacity>
                 </View>
-
-                {/* Playback Options */}
-                <View style={styles.playbackOptions}>
-                  <TouchableOpacity
-                    onPress={() => setGaplessEnabled(!gaplessEnabled)}
-                    style={[styles.optionButtonCompact, gaplessEnabled && styles.optionButtonActive]}
-                  >
-                    <Text style={styles.optionIconSmall}>⚡</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => setCrossfadeEnabled(!crossfadeEnabled)}
-                    style={[styles.optionButtonCompact, crossfadeEnabled && styles.optionButtonActive]}
-                  >
-                    <Text style={styles.optionIconSmall}>🎚️</Text>
-                  </TouchableOpacity>
-                </View>
               </View>
 
               {/* Volume and Speed Controls - New Row Layout */}
@@ -796,88 +756,6 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
         )}
       </View>
 
-      {/* Settings Modal */}
-      <Modal
-        visible={showSettings}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowSettings(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowSettings(false)}
-        >
-          <View style={styles.settingsModal} onStartShouldSetResponder={() => true}>
-            <Text style={styles.settingsTitle}>Playback Settings</Text>
-            <Text style={styles.settingsSubtitle}>Player {playerNumber}</Text>
-
-            {/* Gapless Playback Setting */}
-            <View style={styles.settingRow}>
-              <View style={styles.settingInfo}>
-                <Text style={styles.settingLabel}>⚡ Gapless Playback</Text>
-                <Text style={styles.settingDescription}>
-                  Seamless transitions between tracks with no silence
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={[styles.toggle, gaplessEnabled && styles.toggleActive]}
-                onPress={() => setGaplessEnabled(!gaplessEnabled)}
-              >
-                <View style={[styles.toggleThumb, gaplessEnabled && styles.toggleThumbActive]} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Crossfade Setting */}
-            <View style={styles.settingRow}>
-              <View style={styles.settingInfo}>
-                <Text style={styles.settingLabel}>🎚️ Crossfade</Text>
-                <Text style={styles.settingDescription}>
-                  Smooth audio transitions between tracks
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={[styles.toggle, crossfadeEnabled && styles.toggleActive]}
-                onPress={() => setCrossfadeEnabled(!crossfadeEnabled)}
-              >
-                <View style={[styles.toggleThumb, crossfadeEnabled && styles.toggleThumbActive]} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Crossfade Duration Slider */}
-            {crossfadeEnabled && (
-              <View style={styles.settingRow}>
-                <View style={styles.settingInfo}>
-                  <Text style={styles.settingLabel}>Crossfade Duration</Text>
-                  <Text style={styles.settingDescription}>
-                    {(crossfadeDuration / 1000).toFixed(1)}s fade between tracks
-                  </Text>
-                </View>
-                <Slider
-                  style={styles.durationSlider}
-                  minimumValue={1000}
-                  maximumValue={10000}
-                  step={500}
-                  value={crossfadeDuration}
-                  onValueChange={setCrossfadeDuration}
-                  minimumTrackTintColor={colors.primary}
-                  maximumTrackTintColor={colors.border}
-                  thumbTintColor={colors.primary}
-                />
-              </View>
-            )}
-
-            {/* Close Button */}
-            <TouchableOpacity
-              style={styles.closeSettingsButton}
-              onPress={() => setShowSettings(false)}
-            >
-              <Text style={styles.closeSettingsButtonText}>Done</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
       {/* Playlist Modal */}
       <Modal
         visible={showPlaylist}
@@ -922,51 +800,51 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
 const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.surface,
-    borderRadius: 12,
-    marginBottom: 12,
+    borderRadius: 8,
+    marginBottom: 8,
     overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: 10,
     backgroundColor: colors.backgroundSecondary,
-    borderBottomWidth: 2,
+    borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   playerLabel: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: 'bold',
     color: colors.textPrimary,
   },
   headerButtons: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
   },
   settingsButton: {
     backgroundColor: colors.backgroundSecondary,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: colors.border,
   },
   settingsButtonText: {
-    fontSize: 20,
+    fontSize: 16,
   },
   loadButton: {
     backgroundColor: colors.primary,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
   loadButtonText: {
-    fontSize: 22,
+    fontSize: 18,
   },
   playlistSection: {
     borderBottomWidth: 1,
@@ -974,12 +852,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.backgroundTertiary,
   },
   playlistToggle: {
-    padding: 14,
-    paddingHorizontal: 16,
-    minHeight: 48,
+    padding: 8,
+    paddingHorizontal: 12,
+    minHeight: 36,
   },
   playlistToggleText: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '600',
     color: colors.textPrimary,
   },
@@ -1014,61 +892,69 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   playerArea: {
-    padding: 10,
+    padding: 8,
   },
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 48,
+    paddingVertical: 24,
+  },
+  loadingIndicator: {
+    marginBottom: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: 'center',
   },
   emptyText: {
-    fontSize: 17,
+    fontSize: 14,
     fontWeight: '600',
     color: colors.textMuted,
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   emptySubtext: {
-    fontSize: 14,
+    fontSize: 12,
     color: colors.textMuted,
     textAlign: 'center',
     fontStyle: 'italic',
   },
   trackInfo: {
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 8,
   },
   trackTitle: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: 'bold',
     color: colors.textPrimary,
-    marginBottom: 6,
+    marginBottom: 4,
     textAlign: 'center',
   },
   trackArtist: {
-    fontSize: 14,
+    fontSize: 12,
     color: colors.textSecondary,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   playlistInfo: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '600',
     color: colors.textMuted,
   },
   progressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 8,
   },
   progressSlider: {
     flex: 1,
-    marginHorizontal: 12,
-    height: 40,
+    marginHorizontal: 8,
+    height: 32,
   },
   timeText: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '600',
     color: colors.textSecondary,
-    width: 48,
+    width: 40,
   },
   mainContentContainer: {
     flexDirection: 'column',
@@ -1076,14 +962,14 @@ const styles = StyleSheet.create({
   },
   controlsSection: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 8,
   },
   secondaryControls: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
     width: '100%',
-    paddingTop: 12,
+    paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: colors.border + '40',
   },
@@ -1091,59 +977,59 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.backgroundSecondary,
-    borderRadius: 12,
-    padding: 4,
+    borderRadius: 8,
+    padding: 3,
     borderWidth: 1,
     borderColor: colors.border,
   },
   adjustButtonSmall: {
-    width: 40,
-    height: 40,
+    width: 32,
+    height: 32,
     backgroundColor: colors.primary,
-    borderRadius: 8,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
   adjustButtonText: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: 'bold',
     color: colors.background,
-    lineHeight: 24,
+    lineHeight: 18,
   },
   valueDisplayCompact: {
-    minWidth: 70,
+    minWidth: 60,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
   },
   valueTextCompact: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: 'bold',
     color: colors.textPrimary,
   },
   valueLabel: {
-    fontSize: 10,
+    fontSize: 8,
     color: colors.textSecondary,
     fontWeight: '600',
-    marginBottom: 2,
+    marginBottom: 1,
   },
   controls: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
-    gap: 16,
+    marginBottom: 8,
+    gap: 8,
     width: '100%',
   },
   modeButton: {
     backgroundColor: colors.backgroundSecondary,
-    borderRadius: 12,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    width: 60,
-    height: 60,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1153,60 +1039,47 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   modeLabelSmall: {
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: 'bold',
     color: colors.textPrimary,
     textAlign: 'center',
-    marginTop: 4,
+    marginTop: 2,
   },
   modeLabelInactive: {
     color: colors.textMuted,
   },
   controlButton: {
-    padding: 8,
-    width: 56,
-    height: 56,
+    padding: 4,
+    width: 44,
+    height: 44,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: colors.backgroundSecondary,
-    borderRadius: 28,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: colors.border,
   },
   controlIcon: {
-    fontSize: 28,
+    fontSize: 22,
     color: colors.textPrimary,
   },
   playButton: {
     backgroundColor: colors.primary,
-    borderRadius: 44,
-    width: 88,
-    height: 88,
+    borderRadius: 32,
+    width: 64,
+    height: 64,
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: 12,
+    marginHorizontal: 8,
     shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowRadius: 4,
     elevation: 5,
   },
   playIcon: {
-    fontSize: 44,
+    fontSize: 32,
     color: colors.background,
-    // marginLeft: 4, // Removed manual optical adjustment
-  },
-  trackTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: colors.textPrimary,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  trackArtist: {
-    fontSize: 16,
-    color: colors.textSecondary,
-    marginBottom: 8,
   },
   playbackOptions: {
     flexDirection: 'row',

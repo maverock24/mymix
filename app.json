@@ -31,7 +31,8 @@
         "READ_MEDIA_AUDIO",
         "POST_NOTIFICATIONS",
         "READ_EXTERNAL_STORAGE",
-        "MANAGE_EXTERNAL_STORAGE"
+        "MANAGE_EXTERNAL_STORAGE",
+        "REQUEST_INSTALL_PACKAGES"
       ],
       "usesLibrary": [
         {

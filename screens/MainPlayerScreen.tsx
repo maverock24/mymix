@@ -134,9 +134,12 @@ export const MainPlayerScreen: React.FC = () => {
     }
   };
 
+  const [isLoadingPlaylist, setIsLoadingPlaylist] = useState<1 | 2 | null>(null);
+
   const handleLoadPlaylist = async (playerNumber: 1 | 2) => {
     try {
       console.log('[MainPlayerScreen] Loading playlist for player', playerNumber);
+      setIsLoadingPlaylist(playerNumber);
 
       // Pick multiple files directly
       const { tracks, selectedIndex } = await PlaylistService.pickAudioFileAndFolder();
@@ -145,6 +148,7 @@ export const MainPlayerScreen: React.FC = () => {
 
       if (tracks.length === 0) {
         console.log('[MainPlayerScreen] No tracks selected, user likely cancelled');
+        setIsLoadingPlaylist(null);
         return;
       }
 
@@ -174,9 +178,6 @@ export const MainPlayerScreen: React.FC = () => {
               isPlaying: false,
               shuffle: false,
               repeat: 'off' as const,
-              crossfadeEnabled: false,
-              crossfadeDuration: 3000,
-              gaplessEnabled: true,
             }),
             playlistId: playlist.id,
             currentTrackIndex: selectedIndex,
@@ -197,9 +198,6 @@ export const MainPlayerScreen: React.FC = () => {
               isPlaying: false,
               shuffle: false,
               repeat: 'off' as const,
-              crossfadeEnabled: false,
-              crossfadeDuration: 3000,
-              gaplessEnabled: true,
             }),
             playlistId: playlist.id,
             currentTrackIndex: selectedIndex,
@@ -211,6 +209,8 @@ export const MainPlayerScreen: React.FC = () => {
       if (Platform.OS !== 'web') {
         Alert.alert('Error', 'Failed to load audio files');
       }
+    } finally {
+      setIsLoadingPlaylist(null);
     }
   };
 
@@ -227,9 +227,6 @@ export const MainPlayerScreen: React.FC = () => {
           isPlaying: false,
           shuffle: false,
           repeat: 'off' as const,
-          crossfadeEnabled: false,
-          crossfadeDuration: 3000,
-          gaplessEnabled: true,
         },
       };
       setDualState(newDualState);
@@ -265,9 +262,6 @@ export const MainPlayerScreen: React.FC = () => {
           isPlaying: false,
           shuffle: false,
           repeat: 'off' as const,
-          crossfadeEnabled: false,
-          crossfadeDuration: 3000,
-          gaplessEnabled: true,
         },
         player2: state,
       };
@@ -295,6 +289,21 @@ export const MainPlayerScreen: React.FC = () => {
   const checkForUpdate = async () => {
     try {
       setIsCheckingForUpdate(true);
+
+      // Check if running in development mode
+      if (__DEV__) {
+        if (Platform.OS !== 'web') {
+          Alert.alert(
+            'Development Mode',
+            'Updates are not available in development mode. Build and run a production version to check for updates.'
+          );
+        } else {
+          alert('Updates are not available in development mode.');
+        }
+        setIsCheckingForUpdate(false);
+        return;
+      }
+
       const update = await Updates.checkForUpdateAsync();
 
       if (update.isAvailable) {
@@ -315,7 +324,8 @@ export const MainPlayerScreen: React.FC = () => {
                     await Updates.fetchUpdateAsync();
                     await Updates.reloadAsync();
                   } catch (error) {
-                    Alert.alert('Error', 'Failed to fetch update');
+                    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                    Alert.alert('Error', `Failed to fetch update: ${errorMessage}`);
                     setIsCheckingForUpdate(false);
                   }
                 },
@@ -338,8 +348,11 @@ export const MainPlayerScreen: React.FC = () => {
       }
     } catch (error) {
       console.error('Error checking for update:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       if (Platform.OS !== 'web') {
-        Alert.alert('Error', 'Failed to check for updates.');
+        Alert.alert('Error', `Failed to check for updates: ${errorMessage}`);
+      } else {
+        alert(`Failed to check for updates: ${errorMessage}`);
       }
       setIsCheckingForUpdate(false);
     }
@@ -519,6 +532,7 @@ export const MainPlayerScreen: React.FC = () => {
             onStateChange={handlePlayer1StateChange}
             onLoadPlaylist={() => handleLoadPlaylist(1)}
             isActiveMediaControl={activeMediaControlPlayer === 1}
+            isLoadingPlaylist={isLoadingPlaylist === 1}
           />
 
           <SinglePlayer
@@ -529,6 +543,7 @@ export const MainPlayerScreen: React.FC = () => {
             onStateChange={handlePlayer2StateChange}
             onLoadPlaylist={() => handleLoadPlaylist(2)}
             isActiveMediaControl={activeMediaControlPlayer === 2}
+            isLoadingPlaylist={isLoadingPlaylist === 2}
           />
         </ScrollView>
       )}
@@ -773,7 +788,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: 16,
+    padding: 8,
   },
   modalOverlay: {
     flex: 1,
