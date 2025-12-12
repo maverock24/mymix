@@ -953,8 +953,9 @@ export const PodcastScreen: React.FC = () => {
                 <TouchableOpacity
                   style={[
                     styles.episodeItem,
-                    isCompleted && styles.episodeItemPlayed,
-                    isCurrent && styles.episodeItemActive,
+                    { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+                    isCompleted && { opacity: 0.6, borderColor: theme.colors.tileBorder },
+                    isCurrent && { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.glow, borderWidth: 3, opacity: 1 },
                   ]}
                   onPress={() => {
                     if (isCurrent) {
@@ -967,19 +968,13 @@ export const PodcastScreen: React.FC = () => {
                 >
                   <View style={styles.episodeInfo}>
                     <View style={styles.episodeTitleRow}>
-                      <Text style={[styles.episodeTitle, isCompleted && styles.episodeTitleCompleted]}>
+                      <Text style={[styles.episodeTitle, { color: theme.colors.textPrimary }, isCompleted && { color: theme.colors.textMuted }]}>
                         {item.title}
                       </Text>
                       <View style={styles.episodeBadges}>
                         {downloaded && (
-                          <TouchableOpacity 
+                          <TouchableOpacity
                             onPress={() => {
-                                // Prompt before deleting? Or just delete. User asked for interactive icons.
-                                // Let's just delete or toggle. Maybe long press to delete?
-                                // But "interactive" implies action.
-                                // Since tapping the row handles play, this specific icon can handle download mgmt.
-                                // Let's stick to the request: "icons... should be interactiveable".
-                                // For safety, maybe alert.
                                 Alert.alert('Delete Download?', `Delete "${item.title}" from device?`, [
                                     { text: 'Cancel', style: 'cancel' },
                                     { text: 'Delete', style: 'destructive', onPress: () => handleDeleteDownload(item.id) }
@@ -987,7 +982,7 @@ export const PodcastScreen: React.FC = () => {
                             }}
                             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                           >
-                            <Text style={styles.downloadedBadge}>↓</Text>
+                            <Text style={[styles.downloadedBadge, { color: theme.colors.glow }]}>↓</Text>
                           </TouchableOpacity>
                         )}
                         {isCompleted && (
@@ -995,7 +990,7 @@ export const PodcastScreen: React.FC = () => {
                             onPress={() => handleMarkAsUnplayed(item)}
                             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                           >
-                            <Text style={styles.completedBadge}>✓</Text>
+                            <Text style={[styles.completedBadge, { color: theme.colors.glow }]}>✓</Text>
                           </TouchableOpacity>
                         )}
                       </View>
