@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -19,10 +19,12 @@ import { SinglePlayer, SinglePlayerRef } from '../components/SinglePlayer';
 import { StorageService, Playlist, DualPlayerState, Preset } from '../services/storage';
 import { PlaylistService } from '../services/playlistService';
 import { SleepTimer, SleepTimerDuration, SleepTimerState } from '../services/sleepTimer';
-import { colors } from '../theme/colors';
+import { useTheme } from '../theme/ThemeProvider';
+import { AnimatedButton } from '../components/AnimatedButton';
 import { BUILD_DATE } from '../constants/BuildInfo';
 
 export const MainPlayerScreen: React.FC = () => {
+  const { theme } = useTheme();
   const [playlist1, setPlaylist1] = useState<Playlist | null>(null);
   const [playlist2, setPlaylist2] = useState<Playlist | null>(null);
   const [dualState, setDualState] = useState<DualPlayerState | null>(null);
@@ -47,6 +49,146 @@ export const MainPlayerScreen: React.FC = () => {
   const player1Ref = useRef<SinglePlayerRef>(null);
   const player2Ref = useRef<SinglePlayerRef>(null);
   const sleepTimer = SleepTimer.getInstance();
+
+  // Dynamic styles using theme
+  const dynamicStyles = useMemo(() => ({
+    container: {
+      flex: 1,
+      backgroundColor: theme.colors.void,
+    },
+    header: {
+      padding: 20,
+      paddingTop: Platform.OS === 'ios' ? 60 : 40,
+      backgroundColor: theme.colors.surface,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+      shadowColor: theme.colors.glow,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+      zIndex: 10,
+    },
+    title: {
+      fontSize: 32,
+      fontWeight: '800' as const,
+      color: theme.colors.primary,
+      letterSpacing: -0.5,
+      textShadowColor: theme.colors.glow,
+      textShadowOffset: { width: 0, height: 0 },
+      textShadowRadius: 10,
+    },
+    headerActionButton: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 12,
+      width: 44,
+      height: 44,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      position: 'relative' as const,
+    },
+    activeSleepTimer: {
+      borderColor: theme.colors.primary,
+      backgroundColor: theme.colors.primaryMuted,
+    },
+    inactiveLinkButton: {
+      borderColor: theme.colors.textMuted,
+      opacity: 0.7,
+    },
+    presetsBadge: {
+      backgroundColor: theme.colors.primary,
+      borderColor: theme.colors.surface,
+    },
+    loadingText: {
+      color: theme.colors.textSecondary,
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: theme.colors.overlay,
+      justifyContent: 'center' as const,
+      alignItems: 'center' as const,
+      padding: 20,
+    },
+    modalContent: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 20,
+      padding: 24,
+      width: '100%' as const,
+      maxWidth: 400,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      shadowColor: theme.colors.glow,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 10,
+    },
+    modalTitle: {
+      color: theme.colors.textPrimary,
+    },
+    modalSubtitle: {
+      color: theme.colors.textSecondary,
+    },
+    menuSection: {
+      backgroundColor: theme.colors.surfaceAlt,
+      borderColor: theme.colors.border,
+    },
+    menuLabel: {
+      color: theme.colors.textSecondary,
+    },
+    menuValue: {
+      color: theme.colors.textPrimary,
+    },
+    updateButton: {
+      backgroundColor: theme.colors.primary,
+    },
+    updateButtonText: {
+      color: theme.colors.void,
+    },
+    timerOption: {
+      backgroundColor: theme.colors.surfaceAlt,
+      borderColor: theme.colors.border,
+    },
+    timerOptionText: {
+      color: theme.colors.textPrimary,
+    },
+    cancelButton: {
+      backgroundColor: theme.colors.error,
+    },
+    closeButton: {
+      backgroundColor: theme.colors.surfaceAlt,
+      borderColor: theme.colors.border,
+    },
+    closeButtonText: {
+      color: theme.colors.textPrimary,
+    },
+    presetsModal: {
+      backgroundColor: theme.colors.surface,
+      borderColor: theme.colors.border,
+    },
+    presetItem: {
+      backgroundColor: theme.colors.surfaceAlt,
+      borderColor: theme.colors.border,
+    },
+    presetItemName: {
+      color: theme.colors.textPrimary,
+    },
+    presetItemDetails: {
+      color: theme.colors.textSecondary,
+    },
+    presetNameInput: {
+      color: theme.colors.textPrimary,
+    },
+    presetNameContainer: {
+      backgroundColor: theme.colors.surface,
+      borderColor: theme.colors.border,
+    },
+    emptyPresetsText: {
+      color: theme.colors.textMuted,
+    },
+  }), [theme]);
 
   // Load saved state and presets on mount
   useEffect(() => {
@@ -453,59 +595,59 @@ export const MainPlayerScreen: React.FC = () => {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <View style={dynamicStyles.container}>
+      <View style={dynamicStyles.header}>
         <View style={styles.headerTop}>
           <View style={styles.headerText}>
-            <Text style={styles.title}>MyMix</Text>
+            <Text style={dynamicStyles.title}>MyMix</Text>
           </View>
-          
+
           <View style={styles.headerButtons}>
-            <TouchableOpacity
-              style={styles.headerActionButton}
+            <AnimatedButton
+              style={dynamicStyles.headerActionButton}
               onPress={() => setShowPresetsModal(true)}
             >
-              <Text style={styles.headerActionIcon}>📋</Text>
+              <Text style={styles.headerActionIcon}>▤</Text>
               {savedPresets.length > 0 && (
-                <View style={styles.presetsBadge}>
+                <View style={[styles.presetsBadge, dynamicStyles.presetsBadge]}>
                   <Text style={styles.presetsBadgeText}>{savedPresets.length}</Text>
                 </View>
               )}
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={[styles.headerActionButton, !isLinked && styles.inactiveLinkButton]}
+            </AnimatedButton>
+
+            <AnimatedButton
+              style={[dynamicStyles.headerActionButton, !isLinked && dynamicStyles.inactiveLinkButton]}
               onPress={() => setIsLinked(!isLinked)}
             >
-              <Text style={styles.headerActionIcon}>{isLinked ? '🔗' : '🔓'}</Text>
-            </TouchableOpacity>
+              <Text style={styles.headerActionIcon}>{isLinked ? '⬡' : '⬢'}</Text>
+            </AnimatedButton>
 
-            <TouchableOpacity
-              style={[styles.headerActionButton, sleepTimerState.isActive && styles.activeSleepTimer]}
+            <AnimatedButton
+              style={[dynamicStyles.headerActionButton, sleepTimerState.isActive && dynamicStyles.activeSleepTimer]}
               onPress={() => setShowSleepTimerModal(true)}
             >
-              <Text style={styles.headerActionIcon}>😴</Text>
+              <Text style={styles.headerActionIcon}>◐</Text>
               {sleepTimerState.isActive && (
-                <Text style={styles.sleepTimerText}>
+                <Text style={[styles.sleepTimerText, { color: theme.colors.primary }]}>
                   {sleepTimer.formatTime(sleepTimerState.remainingSeconds)}
                 </Text>
               )}
-            </TouchableOpacity>
+            </AnimatedButton>
 
-            <TouchableOpacity
-              style={styles.headerActionButton}
+            <AnimatedButton
+              style={dynamicStyles.headerActionButton}
               onPress={() => setShowMenu(true)}
             >
-              <Text style={styles.headerActionIcon}>☰</Text>
-            </TouchableOpacity>
+              <Text style={styles.headerActionIcon}>≡</Text>
+            </AnimatedButton>
           </View>
         </View>
       </View>
 
       {isLoadingInitialState ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading your music...</Text>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={[styles.loadingText, dynamicStyles.loadingText]}>Loading your music...</Text>
         </View>
       ) : (
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
@@ -543,70 +685,70 @@ export const MainPlayerScreen: React.FC = () => {
         onRequestClose={() => setShowMenu(false)}
       >
         <TouchableOpacity
-          style={styles.modalOverlay}
+          style={dynamicStyles.modalOverlay}
           activeOpacity={1}
           onPress={() => setShowMenu(false)}
         >
-          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
-            <Text style={styles.modalTitle}>Menu</Text>
-            
+          <View style={dynamicStyles.modalContent} onStartShouldSetResponder={() => true}>
+            <Text style={[styles.modalTitle, dynamicStyles.modalTitle]}>Menu</Text>
+
             {/* Preset Name Input - Moved inside Menu */}
             <View style={styles.menuPresetInputWrapper}>
-               <Text style={styles.menuLabel}>Name the Mix</Text>
-               <View style={styles.presetNameContainer}>
-                <Text style={styles.presetNameIcon}>💾</Text>
+               <Text style={[styles.menuLabel, dynamicStyles.menuLabel]}>Name the Mix</Text>
+               <View style={[styles.presetNameContainer, dynamicStyles.presetNameContainer]}>
+                <Text style={styles.presetNameIcon}>◇</Text>
                 <TextInput
-                  style={styles.presetNameInput}
+                  style={[styles.presetNameInput, dynamicStyles.presetNameInput]}
                   placeholder="Name this mix..."
-                  placeholderTextColor={colors.textMuted}
+                  placeholderTextColor={theme.colors.textMuted}
                   value={presetName}
                   onChangeText={handlePresetNameChange}
                 />
                 {presetName.trim() ? (
-                  <View style={styles.saveStatusContainer}>
-                    <Text style={styles.autoSaveText}>Saved</Text>
-                    <Text style={styles.autoSaveIndicator}>✓</Text>
+                  <View style={[styles.saveStatusContainer, { backgroundColor: theme.colors.primaryMuted }]}>
+                    <Text style={[styles.autoSaveText, { color: theme.colors.primary }]}>Saved</Text>
+                    <Text style={[styles.autoSaveIndicator, { color: theme.colors.primary }]}>✓</Text>
                   </View>
                 ) : null}
               </View>
             </View>
 
-            <View style={styles.menuSection}>
-              <Text style={styles.menuLabel}>App Version</Text>
-              <Text style={styles.menuValue}>Build: {BUILD_DATE}</Text>
+            <View style={[styles.menuSection, dynamicStyles.menuSection]}>
+              <Text style={[styles.menuLabel, dynamicStyles.menuLabel]}>App Version</Text>
+              <Text style={[styles.menuValue, dynamicStyles.menuValue]}>Build: {BUILD_DATE}</Text>
             </View>
 
             {storageUsage && (
-              <View style={styles.menuSection}>
-                <Text style={styles.menuLabel}>Storage Usage</Text>
-                <Text style={styles.menuValue}>
+              <View style={[styles.menuSection, dynamicStyles.menuSection]}>
+                <Text style={[styles.menuLabel, dynamicStyles.menuLabel]}>Storage Usage</Text>
+                <Text style={[styles.menuValue, dynamicStyles.menuValue]}>
                   {formatBytes(storageUsage.used)}
                   {storageUsage.quota > 0 ? ` / ${formatBytes(storageUsage.quota)}` : ''}
                 </Text>
                 {Platform.OS === 'web' && (
-                  <Text style={styles.menuSubtext}>Includes IndexedDB & Cache</Text>
+                  <Text style={[styles.menuSubtext, { color: theme.colors.textSecondary }]}>Includes IndexedDB & Cache</Text>
                 )}
               </View>
             )}
 
-            <TouchableOpacity
-              style={styles.updateButton}
+            <AnimatedButton
+              style={[styles.updateButton, dynamicStyles.updateButton]}
               onPress={checkForUpdate}
               disabled={isCheckingForUpdate}
             >
               {isCheckingForUpdate ? (
-                <ActivityIndicator color="#FFF" />
+                <ActivityIndicator color={theme.colors.void} />
               ) : (
-                <Text style={styles.updateButtonText}>Check for Updates</Text>
+                <Text style={[styles.updateButtonText, dynamicStyles.updateButtonText]}>Check for Updates</Text>
               )}
-            </TouchableOpacity>
+            </AnimatedButton>
 
-            <TouchableOpacity
-              style={styles.closeButton}
+            <AnimatedButton
+              style={[styles.closeButton, dynamicStyles.closeButton]}
               onPress={() => setShowMenu(false)}
             >
-              <Text style={styles.closeButtonText}>Close</Text>
-            </TouchableOpacity>
+              <Text style={[styles.closeButtonText, dynamicStyles.closeButtonText]}>Close</Text>
+            </AnimatedButton>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -619,41 +761,41 @@ export const MainPlayerScreen: React.FC = () => {
         onRequestClose={() => setShowSleepTimerModal(false)}
       >
         <TouchableOpacity
-          style={styles.modalOverlay}
+          style={dynamicStyles.modalOverlay}
           activeOpacity={1}
           onPress={() => setShowSleepTimerModal(false)}
         >
-          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
-            <Text style={styles.modalTitle}>Sleep Timer</Text>
-            <Text style={styles.modalSubtitle}>Playback will stop after:</Text>
+          <View style={dynamicStyles.modalContent} onStartShouldSetResponder={() => true}>
+            <Text style={[styles.modalTitle, dynamicStyles.modalTitle]}>Sleep Timer</Text>
+            <Text style={[styles.modalSubtitle, dynamicStyles.modalSubtitle]}>Playback will stop after:</Text>
 
             <View style={styles.timerGrid}>
               {sleepTimerDurations.map((minutes) => (
-                <TouchableOpacity
+                <AnimatedButton
                   key={minutes}
-                  style={styles.timerOption}
+                  style={[styles.timerOption, dynamicStyles.timerOption]}
                   onPress={() => handleStartSleepTimer(minutes)}
                 >
-                  <Text style={styles.timerOptionText}>{minutes} min</Text>
-                </TouchableOpacity>
+                  <Text style={[styles.timerOptionText, dynamicStyles.timerOptionText]}>{minutes} min</Text>
+                </AnimatedButton>
               ))}
             </View>
 
             {sleepTimerState.isActive && (
-              <TouchableOpacity
-                style={styles.cancelButton}
+              <AnimatedButton
+                style={[styles.cancelButton, dynamicStyles.cancelButton]}
                 onPress={handleStopSleepTimer}
               >
                 <Text style={styles.cancelButtonText}>Cancel Timer</Text>
-              </TouchableOpacity>
+              </AnimatedButton>
             )}
 
-            <TouchableOpacity
-              style={styles.closeButton}
+            <AnimatedButton
+              style={[styles.closeButton, dynamicStyles.closeButton]}
               onPress={() => setShowSleepTimerModal(false)}
             >
-              <Text style={styles.closeButtonText}>Close</Text>
-            </TouchableOpacity>
+              <Text style={[styles.closeButtonText, dynamicStyles.closeButtonText]}>Close</Text>
+            </AnimatedButton>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -666,20 +808,20 @@ export const MainPlayerScreen: React.FC = () => {
         onRequestClose={() => setShowPresetsModal(false)}
       >
         <TouchableOpacity
-          style={styles.modalOverlay}
+          style={dynamicStyles.modalOverlay}
           activeOpacity={1}
           onPress={() => setShowPresetsModal(false)}
         >
-          <View style={styles.presetsModal} onStartShouldSetResponder={() => true}>
-            <Text style={styles.modalTitle}>Saved Presets</Text>
-            <Text style={styles.modalSubtitle}>
+          <View style={[styles.presetsModal, dynamicStyles.presetsModal]} onStartShouldSetResponder={() => true}>
+            <Text style={[styles.modalTitle, dynamicStyles.modalTitle]}>Saved Presets</Text>
+            <Text style={[styles.modalSubtitle, dynamicStyles.modalSubtitle]}>
               {savedPresets.length} saved configuration{savedPresets.length !== 1 ? 's' : ''}
             </Text>
 
             {savedPresets.length === 0 ? (
               <View style={styles.emptyPresets}>
-                <Text style={styles.emptyPresetsText}>No saved presets yet</Text>
-                <Text style={styles.emptyPresetsSubtext}>
+                <Text style={[styles.emptyPresetsText, dynamicStyles.emptyPresetsText]}>No saved presets yet</Text>
+                <Text style={[styles.emptyPresetsSubtext, dynamicStyles.emptyPresetsText]}>
                   Enter a name above to save your current setup
                 </Text>
               </View>
@@ -689,41 +831,41 @@ export const MainPlayerScreen: React.FC = () => {
                 keyExtractor={(item) => item.id}
                 style={styles.presetsList}
                 renderItem={({ item }) => (
-                  <View style={styles.presetItem}>
-                    <TouchableOpacity
+                  <View style={[styles.presetItem, dynamicStyles.presetItem]}>
+                    <AnimatedButton
                       style={styles.presetItemButton}
                       onPress={() => handleLoadPreset(item)}
                       disabled={isLoadingPreset}
                     >
                       <View style={styles.presetItemInfo}>
-                        <Text style={styles.presetItemName}>{item.name}</Text>
-                        <Text style={styles.presetItemDetails}>
+                        <Text style={[styles.presetItemName, dynamicStyles.presetItemName]}>{item.name}</Text>
+                        <Text style={[styles.presetItemDetails, dynamicStyles.presetItemDetails]}>
                           {item.playlist1 && `P1: ${item.playlist1.name}`}
                           {item.playlist1 && item.playlist2 && ' • '}
                           {item.playlist2 && `P2: ${item.playlist2.name}`}
                         </Text>
                       </View>
                       {isLoadingPreset && (
-                        <ActivityIndicator size="small" color={colors.primary} />
+                        <ActivityIndicator size="small" color={theme.colors.primary} />
                       )}
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.deletePresetButton}
+                    </AnimatedButton>
+                    <AnimatedButton
+                      style={[styles.deletePresetButton, { backgroundColor: theme.colors.surfaceAlt, borderLeftColor: theme.colors.border }]}
                       onPress={() => handleDeletePreset(item.id, item.name)}
                     >
-                      <Text style={styles.deletePresetText}>🗑️</Text>
-                    </TouchableOpacity>
+                      <Text style={styles.deletePresetText}>×</Text>
+                    </AnimatedButton>
                   </View>
                 )}
               />
             )}
 
-            <TouchableOpacity
-              style={styles.closeButton}
+            <AnimatedButton
+              style={[styles.closeButton, dynamicStyles.closeButton]}
               onPress={() => setShowPresetsModal(false)}
             >
-              <Text style={styles.closeButtonText}>Close</Text>
-            </TouchableOpacity>
+              <Text style={[styles.closeButtonText, dynamicStyles.closeButtonText]}>Close</Text>
+            </AnimatedButton>
           </View>
         </TouchableOpacity>
       </Modal>

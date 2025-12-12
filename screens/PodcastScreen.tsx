@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -15,7 +15,8 @@ import {
 } from 'react-native';
 import { Audio, AVPlaybackStatus } from 'expo-av';
 import Slider from '@react-native-community/slider';
-import { colors } from '../theme/colors';
+import { useTheme } from '../theme/ThemeProvider';
+import { AnimatedButton, PlayButton, SkipButton } from '../components/AnimatedButton';
 import { playbackCoordinator } from '../services/playbackCoordinator';
 import {
   PodcastStorageService,
@@ -34,6 +35,8 @@ import { SleepTimer, SleepTimerDuration, SleepTimerState } from '../services/sle
 const PLAYBACK_SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
 
 export const PodcastScreen: React.FC = () => {
+  const { theme } = useTheme();
+
   // Podcast/Episode state
   const [savedPodcasts, setSavedPodcasts] = useState<Podcast[]>([]);
   const [isLoadingPodcasts, setIsLoadingPodcasts] = useState(true);
@@ -925,8 +928,8 @@ export const PodcastScreen: React.FC = () => {
 
         {isLoadingEpisodes ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.loadingText}>Loading episodes...</Text>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>Loading episodes...</Text>
           </View>
         ) : filteredEpisodes.length === 0 ? (
           <View style={styles.emptyState}>
@@ -1010,7 +1013,7 @@ export const PodcastScreen: React.FC = () => {
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                       >
                         <Text style={styles.playingIndicator}>
-                            {isBuffering ? '⏳' : isPlaying ? '▶' : '⏸'}
+                            {isBuffering ? '◌' : isPlaying ? '▶' : '▮▮'}
                         </Text>
                       </TouchableOpacity>
                     ) : (
@@ -1040,7 +1043,7 @@ export const PodcastScreen: React.FC = () => {
                   onPress={() => setShowChaptersModal(true)}
                 >
                   <Text style={styles.chapterIndicatorText} numberOfLines={1}>
-                    📑 {currentChapter.title}
+                    ▤ {currentChapter.title}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -1061,35 +1064,29 @@ export const PodcastScreen: React.FC = () => {
                 maximumValue={duration || 1}
                 value={position}
                 onSlidingComplete={handleSeek}
-                minimumTrackTintColor={colors.primary}
-                maximumTrackTintColor={colors.border}
-                thumbTintColor={colors.primary}
+                minimumTrackTintColor={theme.colors.primary}
+                maximumTrackTintColor={theme.colors.border}
+                thumbTintColor={theme.colors.primary}
               />
 
               <View style={styles.playerControls}>
-                <TouchableOpacity
-                  style={styles.skipButton}
+                <SkipButton
                   onPress={() => handleSkip(-15)}
-                >
-                  <Text style={styles.skipButtonText}>-15s</Text>
-                </TouchableOpacity>
+                  label="-15s"
+                />
 
-                <TouchableOpacity
-                  style={styles.playButton}
+                <PlayButton
                   onPress={handlePauseResume}
+                  isPlaying={isPlaying}
+                  isLoading={isBuffering}
+                  size="large"
                   disabled={isBuffering}
-                >
-                  <Text style={styles.playButtonText}>
-                    {isBuffering ? '⏳' : isPlaying ? '⏸' : '▶'}
-                  </Text>
-                </TouchableOpacity>
+                />
 
-                <TouchableOpacity
-                  style={styles.skipButton}
+                <SkipButton
                   onPress={() => handleSkip(30)}
-                >
-                  <Text style={styles.skipButtonText}>+30s</Text>
-                </TouchableOpacity>
+                  label="+30s"
+                />
               </View>
 
               {/* Extra controls row */}
@@ -1106,8 +1103,8 @@ export const PodcastScreen: React.FC = () => {
                   onPress={() => setShowSleepTimerModal(true)}
                 >
                   <Text style={styles.extraButtonText}>
-                    {sleepTimerState.isActive ? `⏰ ${sleepTimer.formatTime(sleepTimerState.remainingSeconds)}` :
-                     sleepAtEndOfEpisode ? '⏰ End' : '⏰'}
+                    {sleepTimerState.isActive ? `◐ ${sleepTimer.formatTime(sleepTimerState.remainingSeconds)}` :
+                     sleepAtEndOfEpisode ? '◐ End' : '◐'}
                   </Text>
                 </TouchableOpacity>
 
@@ -1116,7 +1113,7 @@ export const PodcastScreen: React.FC = () => {
                     style={styles.extraButton}
                     onPress={() => setShowChaptersModal(true)}
                   >
-                    <Text style={styles.extraButtonText}>📑</Text>
+                    <Text style={styles.extraButtonText}>▤</Text>
                   </TouchableOpacity>
                 )}
 
@@ -1124,7 +1121,7 @@ export const PodcastScreen: React.FC = () => {
                   style={styles.extraButton}
                   onPress={playNextEpisodeFromQueue}
                 >
-                  <Text style={styles.extraButtonText}>⏭</Text>
+                  <Text style={styles.extraButtonText}>►►</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1251,7 +1248,7 @@ export const PodcastScreen: React.FC = () => {
               <View style={styles.chaptersHeader}>
                 <Text style={styles.modalTitle}>Chapters</Text>
                 <TouchableOpacity onPress={() => setShowChaptersModal(false)}>
-                  <Text style={styles.closeButton}>✕</Text>
+                  <Text style={styles.closeButton}>×</Text>
                 </TouchableOpacity>
               </View>
               <FlatList
@@ -1289,7 +1286,7 @@ export const PodcastScreen: React.FC = () => {
               <View style={styles.queueHeader}>
                 <Text style={styles.modalTitle}>Up Next</Text>
                 <TouchableOpacity onPress={() => setShowQueueModal(false)}>
-                  <Text style={styles.closeButton}>✕</Text>
+                  <Text style={styles.closeButton}>×</Text>
                 </TouchableOpacity>
               </View>
               {queue.length === 0 ? (
@@ -1315,7 +1312,7 @@ export const PodcastScreen: React.FC = () => {
                         style={styles.queueRemoveButton}
                         onPress={() => handleRemoveFromQueue(item.episode.id)}
                       >
-                        <Text style={styles.queueRemoveButtonText}>✕</Text>
+                        <Text style={styles.queueRemoveButtonText}>×</Text>
                       </TouchableOpacity>
                     </View>
                   )}
@@ -1409,24 +1406,24 @@ export const PodcastScreen: React.FC = () => {
 
       <View style={styles.searchContainer}>
         <TextInput
-          style={styles.searchInput}
+          style={[styles.searchInput, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.textPrimary }]}
           placeholder="Search for podcasts..."
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor={theme.colors.textMuted}
           value={searchQuery}
           onChangeText={setSearchQuery}
           onSubmitEditing={searchPodcasts}
         />
-        <TouchableOpacity
-          style={styles.searchButton}
+        <AnimatedButton
+          style={[styles.searchButton, { backgroundColor: theme.colors.primary }]}
           onPress={searchPodcasts}
           disabled={isSearching}
         >
           {isSearching ? (
-            <ActivityIndicator size="small" color={colors.background} />
+            <ActivityIndicator size="small" color={theme.colors.void} />
           ) : (
-            <Text style={styles.searchButtonText}>Search</Text>
+            <Text style={[styles.searchButtonText, { color: theme.colors.void }]}>Search</Text>
           )}
-        </TouchableOpacity>
+        </AnimatedButton>
       </View>
 
       {showSearchResults ? (
@@ -1468,7 +1465,7 @@ export const PodcastScreen: React.FC = () => {
                     {isAdding ? (
                       <ActivityIndicator size="small" color={colors.background} />
                     ) : (
-                      <Text style={styles.addButtonText}>{isAdded ? '✓' : '+'}</Text>
+                      <Text style={styles.addButtonText}>{isAdded ? '◆' : '+'}</Text>
                     )}
                   </TouchableOpacity>
                 </View>
@@ -1479,8 +1476,8 @@ export const PodcastScreen: React.FC = () => {
       ) : (
         isLoadingPodcasts ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.loadingText}>Loading your podcasts...</Text>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>Loading your podcasts...</Text>
           </View>
         ) : savedPodcasts.length === 0 ? (
           <View style={styles.emptyState}>
@@ -1506,7 +1503,7 @@ export const PodcastScreen: React.FC = () => {
                     <Image source={{ uri: item.imageUrl }} style={styles.podcastTileImage} />
                   ) : (
                     <View style={styles.podcastTilePlaceholder}>
-                      <Text style={styles.podcastTilePlaceholderText}>🎙️</Text>
+                      <Text style={styles.podcastTilePlaceholderText}>◉</Text>
                     </View>
                   )}
                   <Text style={styles.podcastTileTitle} numberOfLines={2}>{item.title}</Text>
@@ -1549,7 +1546,7 @@ export const PodcastScreen: React.FC = () => {
             }}
           >
             <Text style={styles.miniPlayerButtonText}>
-              {isBuffering ? '⏳' : isPlaying ? '⏸' : '▶'}
+              {isBuffering ? '◌' : isPlaying ? '▮▮' : '▶'}
             </Text>
           </TouchableOpacity>
         </TouchableOpacity>

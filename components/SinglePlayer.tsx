@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -19,7 +19,8 @@ import Slider from '@react-native-community/slider';
 import { PlaybackState, Command, MediaControl } from '../services/mediaControl';
 import { Track, Playlist, PlayerState, RepeatMode } from '../services/storage';
 import { PlaylistService } from '../services/playlistService';
-import { colors } from '../theme/colors';
+import { useTheme } from '../theme/ThemeProvider';
+import { AnimatedButton, PlayButton, ControlButton } from './AnimatedButton';
 import { playbackCoordinator } from '../services/playbackCoordinator';
 
 type SortOption = 'default' | 'title' | 'artist' | 'duration';
@@ -133,6 +134,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   isLoadingPlaylist = false,
   playbackGroupId = 'default',
 }, ref) => {
+  const { theme } = useTheme();
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -903,7 +905,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
           style={styles.favoriteButton}
         >
           <Text style={[styles.favoriteIcon, isFavorite && styles.favoriteIconActive]}>
-            {isFavorite ? '★' : '☆'}
+            {isFavorite ? '◆' : '◇'}
           </Text>
         </TouchableOpacity>
       </TouchableOpacity>
@@ -911,37 +913,37 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
       {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.playerLabel}>{playerNumber === 1 ? 'Main' : 'Background'}</Text>
-        
+      <View style={[styles.header, { backgroundColor: theme.colors.surfaceAlt, borderBottomColor: theme.colors.border }]}>
+        <Text style={[styles.playerLabel, { color: theme.colors.textPrimary }]}>{playerNumber === 1 ? 'Main' : 'Background'}</Text>
+
         {playlist ? (
             <View style={styles.headerSearchContainer}>
               <TextInput
-                style={styles.headerSearchInput}
+                style={[styles.headerSearchInput, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.textPrimary }]}
                 placeholder={showFavoritesOnly ? "Search favorites..." : "Search tracks..."}
-                placeholderTextColor={colors.textMuted}
+                placeholderTextColor={theme.colors.textMuted}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
               />
-              <TouchableOpacity
-                style={[styles.headerFavoriteButton, showFavoritesOnly && styles.headerFavoriteButtonActive]}
+              <AnimatedButton
+                style={[styles.headerFavoriteButton, { backgroundColor: theme.colors.surface, borderColor: showFavoritesOnly ? theme.colors.primary : theme.colors.border }]}
                 onPress={() => setShowFavoritesOnly(!showFavoritesOnly)}
               >
-                <Text style={[styles.headerFavoriteIcon, showFavoritesOnly && styles.headerFavoriteIconActive]}>
-                  {showFavoritesOnly ? '★' : '☆'}
+                <Text style={[styles.headerFavoriteIcon, { color: showFavoritesOnly ? theme.colors.primary : theme.colors.textPrimary }]}>
+                  {showFavoritesOnly ? '◆' : '◇'}
                 </Text>
-              </TouchableOpacity>
+              </AnimatedButton>
             </View>
         ) : (
             <View style={{flex: 1}} />
         )}
 
         <View style={styles.headerButtons}>
-          <TouchableOpacity onPress={onLoadPlaylist} style={styles.loadButton}>
-            <Text style={styles.loadButtonText}>📁</Text>
-          </TouchableOpacity>
+          <AnimatedButton onPress={onLoadPlaylist} style={[styles.loadButton, { backgroundColor: theme.colors.void }]}>
+            <Text style={[styles.loadButtonText, { color: theme.colors.textPrimary }]}>◫</Text>
+          </AnimatedButton>
         </View>
       </View>
 
@@ -965,7 +967,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
           style={styles.playlistToggle}
         >
           <Text style={styles.playlistToggleText}>
-            📋 {playlist.tracks.length} tracks
+            ▤ {playlist.tracks.length} tracks
           </Text>
         </TouchableOpacity>
       )}
@@ -973,33 +975,32 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
       {/* Player Controls */}
       <View style={styles.playerArea}>
         {!playlist ? (
-          <TouchableOpacity 
-            style={styles.emptyStateContainer} 
+          <AnimatedButton
+            style={styles.emptyStateContainer}
             onPress={onLoadPlaylist}
-            activeOpacity={0.7}
           >
             {isLoadingPlaylist ? (
               <>
-                <ActivityIndicator size="large" color={colors.primary} style={styles.loadingIndicator} />
-                <Text style={styles.loadingText}>Loading files...</Text>
+                <ActivityIndicator size="large" color={theme.colors.primary} style={styles.loadingIndicator} />
+                <Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>Loading files...</Text>
               </>
             ) : (
               <>
                 <View style={styles.emptyIconContainer}>
-                  <Text style={styles.emptyIconLarge}>📁</Text>
-                  <View style={styles.emptyIconPlusBadge}>
-                    <Text style={styles.emptyIconPlusText}>+</Text>
+                  <Text style={styles.emptyIconLarge}>◫</Text>
+                  <View style={[styles.emptyIconPlusBadge, { backgroundColor: theme.colors.primary, borderColor: theme.colors.surface }]}>
+                    <Text style={[styles.emptyIconPlusText, { color: theme.colors.void }]}>+</Text>
                   </View>
                 </View>
-                <Text style={styles.emptyText}>Tap to Load Music</Text>
-                <Text style={styles.emptySubtext}>
+                <Text style={[styles.emptyText, { color: theme.colors.textPrimary }]}>Tap to Load Music</Text>
+                <Text style={[styles.emptySubtext, { color: theme.colors.textSecondary }]}>
                   {Platform.OS === 'web'
                     ? 'Select audio files to play'
                     : 'Choose a folder to start listening'}
                 </Text>
               </>
             )}
-          </TouchableOpacity>
+          </AnimatedButton>
         ) : (
           <>
             {/* Main Content - Vertical Layout */}
@@ -1018,7 +1019,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                       style={styles.trackFavoriteButton}
                     >
                       <Text style={styles.trackFavoriteIcon}>
-                        {favorites.has(currentTrack.id) ? '★' : '☆'}
+                        {favorites.has(currentTrack.id) ? '◆' : '◇'}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -1027,7 +1028,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
 
               {/* Progress Bar with AB Repeat markers */}
               <View style={styles.progressContainer}>
-                <Text style={styles.timeText}>{PlaylistService.formatTime(position)}</Text>
+                <Text style={[styles.timeText, { color: theme.colors.textSecondary }]}>{PlaylistService.formatTime(position)}</Text>
                 <View style={styles.sliderContainer}>
                   <Slider
                     style={styles.progressSlider}
@@ -1036,9 +1037,9 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                     value={position}
                     onValueChange={handlePositionChange}
                     onSlidingComplete={handlePositionComplete}
-                    minimumTrackTintColor={colors.primary}
-                    maximumTrackTintColor={colors.border}
-                    thumbTintColor={colors.primary}
+                    minimumTrackTintColor={theme.colors.primary}
+                    maximumTrackTintColor={theme.colors.border}
+                    thumbTintColor={theme.colors.primary}
                   />
                   {/* AB Repeat markers */}
                   {pointA !== null && duration > 0 && (
@@ -1060,14 +1061,14 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                     />
                   )}
                 </View>
-                <Text style={styles.timeText}>{PlaylistService.formatTime(duration)}</Text>
+                <Text style={[styles.timeText, { color: theme.colors.textSecondary }]}>{PlaylistService.formatTime(duration)}</Text>
               </View>
 
               {/* AB Repeat indicator */}
               {abRepeatActive && (
                 <View style={styles.abRepeatIndicator}>
                   <Text style={styles.abRepeatText}>
-                    🔁 A-B: {PlaylistService.formatTime(pointA || 0)} → {PlaylistService.formatTime(pointB || 0)}
+                    ⟳ A-B: {PlaylistService.formatTime(pointA || 0)} → {PlaylistService.formatTime(pointB || 0)}
                   </Text>
                 </View>
               )}
@@ -1075,92 +1076,86 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
               {/* Playback Controls */}
               <View style={styles.controlsSection}>
                 <View style={styles.controls}>
-                  <TouchableOpacity
+                  <ControlButton
                     onPress={toggleShuffle}
-                    style={[styles.controlButton, shuffle && styles.controlButtonActive]}
-                  >
-                    <Text style={[styles.controlIconSmall, shuffle && styles.controlIconActive]}>🔀</Text>
-                  </TouchableOpacity>
+                    icon="⤮"
+                    isActive={shuffle}
+                  />
 
-                  <TouchableOpacity onPress={handlePrevious} style={styles.controlButton}>
-                    <Text style={styles.controlIcon}>⏮</Text>
-                  </TouchableOpacity>
+                  <ControlButton
+                    onPress={handlePrevious}
+                    icon="◄◄"
+                  />
 
-                  <TouchableOpacity
+                  <PlayButton
                     onPress={togglePlayPause}
-                    style={styles.playButton}
+                    isPlaying={isPlaying}
+                    isLoading={isLoading}
+                    size="medium"
                     disabled={isLoading}
-                  >
-                    {isLoading ? (
-                      <ActivityIndicator color={colors.background} />
-                    ) : (
-                      <Text style={styles.playIcon}>{isPlaying ? '⏸' : '▶'}</Text>
-                    )}
-                  </TouchableOpacity>
+                  />
 
-                  <TouchableOpacity onPress={handleNext} style={styles.controlButton}>
-                    <Text style={styles.controlIcon}>⏭</Text>
-                  </TouchableOpacity>
+                  <ControlButton
+                    onPress={handleNext}
+                    icon="►►"
+                  />
 
-                  <TouchableOpacity
+                  <ControlButton
                     onPress={cycleRepeat}
-                    style={[styles.controlButton, repeat !== 'off' && styles.controlButtonActive]}
-                  >
-                    <Text style={[styles.controlIconSmall, repeat !== 'off' && styles.controlIconActive]}>
-                      {repeat === 'one' ? '🔂' : '🔁'}
-                    </Text>
-                  </TouchableOpacity>
+                    icon={repeat === 'one' ? '⟳¹' : '⟳'}
+                    isActive={repeat !== 'off'}
+                  />
                 </View>
               </View>
 
               {/* Secondary Controls Row */}
-              <View style={styles.secondaryControls}>
+              <View style={[styles.secondaryControls, { borderTopColor: theme.colors.border }]}>
                 {/* Volume Control */}
-                <View style={styles.controlGroupHorizontal}>
-                  <TouchableOpacity
-                    style={styles.adjustButtonSmall}
+                <View style={[styles.controlGroupHorizontal, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}>
+                  <AnimatedButton
+                    style={[styles.adjustButtonSmall, { backgroundColor: theme.colors.surfaceAlt }]}
                     onPress={() => handleVolumeChange(-0.1)}
                     disabled={volume <= 0}
                   >
-                    <Text style={styles.adjustButtonText}>−</Text>
-                  </TouchableOpacity>
+                    <Text style={[styles.adjustButtonText, { color: theme.colors.textSecondary }]}>−</Text>
+                  </AnimatedButton>
 
                   <View style={styles.valueDisplayCompact}>
-                    <Text style={styles.valueLabel}>VOL</Text>
-                    <Text style={styles.valueTextCompact}>{Math.round(volume * 100)}%</Text>
+                    <Text style={[styles.valueLabel, { color: theme.colors.textSecondary }]}>VOL</Text>
+                    <Text style={[styles.valueTextCompact, { color: theme.colors.textPrimary }]}>{Math.round(volume * 100)}%</Text>
                   </View>
 
-                  <TouchableOpacity
-                    style={styles.adjustButtonSmall}
+                  <AnimatedButton
+                    style={[styles.adjustButtonSmall, { backgroundColor: theme.colors.surfaceAlt }]}
                     onPress={() => handleVolumeChange(0.1)}
                     disabled={volume >= 1}
                   >
-                    <Text style={styles.adjustButtonText}>+</Text>
-                  </TouchableOpacity>
+                    <Text style={[styles.adjustButtonText, { color: theme.colors.textSecondary }]}>+</Text>
+                  </AnimatedButton>
                 </View>
 
                 {/* Speed Control */}
-                <View style={styles.controlGroupHorizontal}>
-                  <TouchableOpacity
-                    style={styles.adjustButtonSmall}
+                <View style={[styles.controlGroupHorizontal, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}>
+                  <AnimatedButton
+                    style={[styles.adjustButtonSmall, { backgroundColor: theme.colors.surfaceAlt }]}
                     onPress={() => handleSpeedChange(-0.1)}
                     disabled={speed <= 0.5}
                   >
-                    <Text style={styles.adjustButtonText}>−</Text>
-                  </TouchableOpacity>
+                    <Text style={[styles.adjustButtonText, { color: theme.colors.textSecondary }]}>−</Text>
+                  </AnimatedButton>
 
                   <View style={styles.valueDisplayCompact}>
-                    <Text style={styles.valueLabel}>SPEED</Text>
-                    <Text style={styles.valueTextCompact}>{speed.toFixed(1)}×</Text>
+                    <Text style={[styles.valueLabel, { color: theme.colors.textSecondary }]}>SPEED</Text>
+                    <Text style={[styles.valueTextCompact, { color: theme.colors.textPrimary }]}>{speed.toFixed(1)}×</Text>
                   </View>
 
-                  <TouchableOpacity
-                    style={styles.adjustButtonSmall}
+                  <AnimatedButton
+                    style={[styles.adjustButtonSmall, { backgroundColor: theme.colors.surfaceAlt }]}
                     onPress={() => handleSpeedChange(0.1)}
                     disabled={speed >= 2}
                   >
-                    <Text style={styles.adjustButtonText}>+</Text>
-                  </TouchableOpacity>
+                    <Text style={[styles.adjustButtonText, { color: theme.colors.textSecondary }]}>+</Text>
+                  </AnimatedButton>
                 </View>
               </View>
 
@@ -1204,7 +1199,7 @@ export const SinglePlayer = forwardRef<SinglePlayerRef, SinglePlayerProps>(({
                 onPress={() => setShowFavoritesOnly(!showFavoritesOnly)}
               >
                 <Text style={[styles.sortButtonText, showFavoritesOnly && styles.sortButtonTextActive]}>
-                  {showFavoritesOnly ? '★' : '☆'}
+                  {showFavoritesOnly ? '◆' : '◇'}
                 </Text>
               </TouchableOpacity>
             </View>
