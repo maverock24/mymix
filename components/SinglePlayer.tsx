@@ -20,6 +20,7 @@ import { PlaybackState, Command, MediaControl } from '../services/mediaControl';
 import { Track, Playlist, PlayerState, RepeatMode } from '../services/storage';
 import { PlaylistService } from '../services/playlistService';
 import { useTheme } from '../theme/ThemeProvider';
+import { colors } from '../theme/colors';
 import { AnimatedButton, PlayButton, ControlButton } from './AnimatedButton';
 import { playbackCoordinator } from '../services/playbackCoordinator';
 

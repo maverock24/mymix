@@ -20,6 +20,7 @@ import { StorageService, Playlist, DualPlayerState, Preset } from '../services/s
 import { PlaylistService } from '../services/playlistService';
 import { SleepTimer, SleepTimerDuration, SleepTimerState } from '../services/sleepTimer';
 import { useTheme } from '../theme/ThemeProvider';
+import { colors } from '../theme/colors';
 import { AnimatedButton } from '../components/AnimatedButton';
 import { BUILD_DATE } from '../constants/BuildInfo';
 

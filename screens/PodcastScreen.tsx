@@ -16,6 +16,7 @@ import {
 import { Audio, AVPlaybackStatus } from 'expo-av';
 import Slider from '@react-native-community/slider';
 import { useTheme } from '../theme/ThemeProvider';
+import { colors } from '../theme/colors';
 import { AnimatedButton, PlayButton, SkipButton } from '../components/AnimatedButton';
 import { playbackCoordinator } from '../services/playbackCoordinator';
 import {
